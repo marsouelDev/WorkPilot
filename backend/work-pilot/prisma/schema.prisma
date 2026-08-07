@@ -1,0 +1,116 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum RoleGlobal {
+  membre
+  admin
+}
+
+enum StatutCompte {
+  en_attente_verification
+  actif
+  suspendu
+}
+
+enum Complexite {
+  faible
+  moyenne
+  élevée
+}
+
+model Utilisateur {
+  id                     Int          @id @default(autoincrement())
+  nom                    String
+  prenom                 String
+  email                  String       @unique
+  telephone              String
+  motDePasse             String
+  roleGlobal             RoleGlobal   @default(membre)
+  statut                 StatutCompte @default(en_attente_verification)
+  codeVerificationHache  String?
+  codeVerificationExpire DateTime?
+  createdAt              DateTime     @default(now())
+  updatedAt              DateTime     @updatedAt
+  projetsCrees           Projet[]     @relation("ProjetsCrees")
+  tachesAssignees        Tache[]      @relation("TachesAssignees")
+  membres                Membre[]
+
+  @@map("utilisateurs")
+}
+
+enum StatutTache {
+  disponible
+  attribuee
+  en_revue
+  retiree
+  terminee
+}
+
+model Projet {
+  id                 Int      @id @default(autoincrement())
+  titre              String
+  descriptionSommaire String  @db.Text
+  depotGitUrl         String? @unique
+  createurId         Int
+  createur           Utilisateur @relation("ProjetsCrees", fields: [createurId], references: [id])
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  cahierDesCharges   CahierDesCharges?
+  taches             Tache[]
+  membres            Membre[]    
+
+  @@map("projets")
+}
+
+model CahierDesCharges {
+  id             Int      @id @default(autoincrement())
+  projetId       Int      @unique
+  projet         Projet   @relation(fields: [projetId], references: [id], onDelete: Cascade)
+  contenuGenere  String   @db.Text
+  dateGeneration DateTime @default(now())
+
+  @@map("cahiers_des_charges")
+}
+
+model Tache {
+  id                 Int         @id @default(autoincrement())
+  projetId           Int
+  projet             Projet      @relation(fields: [projetId], references: [id], onDelete: Cascade)
+  titre              String
+  descriptionGeneree String      @db.Text
+  statut             StatutTache @default(disponible)
+  assigneeId         Int?
+  assignee           Utilisateur? @relation("TachesAssignees", fields: [assigneeId], references: [id])
+  echeance           DateTime?
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+  competences        String[]    
+  complexite         Complexite      
+  
+
+  @@map("taches")
+}
+enum RoleProjet {
+  chef_projet
+  developpeur
+  relecteur
+}
+
+model Membre {
+  id            Int         @id @default(autoincrement())
+  projetId      Int
+  utilisateurId Int
+  role          RoleProjet  @default(developpeur)
+  dateAjout     DateTime    @default(now())
+  
+  projet        Projet      @relation(fields: [projetId], references: [id], onDelete: Cascade)
+  utilisateur   Utilisateur @relation(fields: [utilisateurId], references: [id], onDelete: Cascade)
+  
+  @@unique([projetId, utilisateurId])  
+  @@map("membres")
+}
