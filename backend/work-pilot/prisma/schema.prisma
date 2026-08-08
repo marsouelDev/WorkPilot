@@ -39,7 +39,7 @@ model Utilisateur {
   projetsCrees           Projet[]     @relation("ProjetsCrees")
   tachesAssignees        Tache[]      @relation("TachesAssignees")
   membres                Membre[]
-
+conversationsIA AssistanceIA[]
   @@map("utilisateurs")
 }
 
@@ -85,16 +85,16 @@ model Tache {
   descriptionGeneree String      @db.Text
   statut             StatutTache @default(disponible)
   assigneeId         Int?
-  assignee           Utilisateur? @relation("TachesAssignees", fields: [assigneeId], references: [id])
+  assignee           Utilisateur? @relation("TachesAssignees",fields: [assigneeId],references: [id])
   echeance           DateTime?
-  createdAt          DateTime    @default(now())
-  updatedAt          DateTime    @updatedAt
-  competences        String[]    
-  complexite         Complexite      
-  
-
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+  competences        String[]
+  complexite         Complexite
+  conversationsIA AssistanceIA[]
   @@map("taches")
 }
+
 enum RoleProjet {
   chef_projet
   developpeur
@@ -107,10 +107,39 @@ model Membre {
   utilisateurId Int
   role          RoleProjet  @default(developpeur)
   dateAjout     DateTime    @default(now())
-  
   projet        Projet      @relation(fields: [projetId], references: [id], onDelete: Cascade)
   utilisateur   Utilisateur @relation(fields: [utilisateurId], references: [id], onDelete: Cascade)
   
   @@unique([projetId, utilisateurId])  
   @@map("membres")
+}
+enum RoleMessageIA {
+  utilisateur
+  assistant
+  systeme
+}
+
+model AssistanceIA {
+  id             Int      @id @default(autoincrement())
+  tacheId        Int
+  utilisateurId  Int
+  tache          Tache       @relation(fields: [tacheId], references: [id], onDelete: Cascade)
+  utilisateur    Utilisateur @relation(fields: [utilisateurId], references: [id], onDelete: Cascade)
+  messages       MessageIA[]
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([tacheId, utilisateurId])
+  @@map("conversations_ia")
+}
+
+model MessageIA {
+  id             Int           @id @default(autoincrement())
+  conversationId Int
+  role           RoleMessageIA
+  contenu        String        @db.Text
+  conversation   AssistanceIA @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  createdAt      DateTime      @default(now())
+
+  @@map("messages_ia")
 }

@@ -11,6 +11,8 @@ interface EmailData {
   role?: string;
   ancienRole?: string;
   inviteurNom?: string;
+  tacheTitre?: string;
+  raison?: string;
 }
 
 @Injectable()

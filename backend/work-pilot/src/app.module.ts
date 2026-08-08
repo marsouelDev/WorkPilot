@@ -9,9 +9,13 @@ import { MailModule } from './mail/mail.module';
 import { EmailModule } from './email/email.module';
 import { AiModule } from './ai/ai.module';
 import { ProjectsModule } from './projects/projects.module';
+import { TasksModule } from './tasks/tasks.module';
+import { ScheduleModule } from '@nestjs/schedule';
+import { AssistanceIaModule } from './assistance-ia/assistance-ia.module';
 
 @Module({
   imports: [
+    ScheduleModule.forRoot(),
     ConfigModule.forRoot({
       isGlobal: true,
     }),
@@ -22,6 +26,8 @@ import { ProjectsModule } from './projects/projects.module';
     EmailModule,
     AiModule,
     ProjectsModule,
+    TasksModule,
+    AssistanceIaModule,
   ],
   controllers: [AppController],
   providers: [AppService],

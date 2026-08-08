@@ -10,9 +10,21 @@ export interface TacheGeneree {
 @Injectable()
 export class AiService {
   private readonly logger = new Logger(AiService.name);
-  private readonly apiUrl = 'https://openrouter.ai/api/v1/chat/completions';
+  private readonly groqApiUrl =
+    'https://api.groq.com/openai/v1/chat/completions';
 
-  private readonly modeles = [
+  private readonly openRouterApiUrl =
+    'https://openrouter.ai/api/v1/chat/completions';
+
+  private readonly modelesGroq = [
+    'llama-3.3-70b-versatile',
+    'llama-3.1-8b-instant',
+    'openai/gpt-oss-120b',
+    'qwen/qwen3.6-27b',
+    'openai/gpt-oss-20b',
+  ];
+
+  private readonly modelesOpenRouter = [
     'nvidia/nemotron-3-ultra-550b-a55b:free',
     'nvidia/nemotron-3-super-120b-a12b:free',
     'google/gemma-4-31b-it:free',
@@ -227,84 +239,200 @@ Réponds avec UNIQUEMENT le tableau JSON, rien d'autre.`;
     forceJson: boolean = false,
     temperature: number = 0.2,
   ): Promise<string> {
-    const apiKey = process.env.OPENROUTER_API_KEY;
-    if (!apiKey) {
-      throw new Error('OPENROUTER_API_KEY non configurée');
-    }
-
     let derniereErreur: Error | null = null;
-    const modelesEssayes: string[] = [];
 
-    for (const modele of this.modeles) {
-      try {
-        this.logger.log(`Tentative : ${modele} (temp: ${temperature})`);
-        modelesEssayes.push(modele);
+    const groqKey = process.env.GROQ_API_KEY;
 
-        const body: any = {
-          model: modele,
-          max_tokens: maxTokens,
-          messages: [
-            { role: 'system', content: system },
-            { role: 'user', content: userMessage },
-          ],
-          temperature: temperature,
-        };
+    if (groqKey) {
+      for (const modele of this.modelesGroq) {
+        try {
+          this.logger.log(`🤖 Tentative GROQ : ${modele}`);
 
-        if (forceJson) {
-          body.response_format = { type: 'json_object' };
-        }
+          const body: any = {
+            model: modele,
+            max_tokens: maxTokens,
+            messages: [
+              {
+                role: 'system',
+                content: system,
+              },
+              {
+                role: 'user',
+                content: userMessage,
+              },
+            ],
+            temperature,
+          };
 
-        const response = await fetch(this.apiUrl, {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${apiKey}`,
-            'Content-Type': 'application/json',
-            'HTTP-Referer': process.env.APP_URL || 'http://localhost:3001',
-            'X-Title': 'WorkPilot',
-          },
-          body: JSON.stringify(body),
-        });
+          if (forceJson) {
+            body.response_format = {
+              type: 'json_object',
+            };
+          }
 
-        if (response.status === 429) {
-          this.logger.warn(`Rate limit sur ${modele}`);
-          continue;
-        }
+          const response = await fetch(this.groqApiUrl, {
+            method: 'POST',
 
-        if (response.status === 404) {
-          this.logger.warn(`Modèle ${modele} indisponible (404)`);
-          continue;
-        }
+            headers: {
+              Authorization: `Bearer ${groqKey}`,
+              'Content-Type': 'application/json',
+            },
 
-        if (response.status === 503) {
-          this.logger.warn(`Service indisponible sur ${modele}`);
-          continue;
-        }
+            body: JSON.stringify(body),
+          });
 
-        if (!response.ok) {
-          const errorBody = await response.text();
+          // Rate limit
+          if (response.status === 429) {
+            this.logger.warn(`⚠️ GROQ rate limit : ${modele}`);
+
+            continue;
+          }
+
+          // Modèle indisponible
+          if (response.status === 404) {
+            this.logger.warn(`⚠️ Modèle GROQ indisponible : ${modele}`);
+
+            continue;
+          }
+
+          if (!response.ok) {
+            const errorBody = await response.text();
+
+            this.logger.error(
+              `❌ GROQ ${response.status} : ${errorBody.substring(0, 300)}`,
+            );
+
+            continue;
+          }
+
+          const data = await response.json();
+
+          const texte = data.choices?.[0]?.message?.content;
+
+          if (!texte) {
+            throw new Error('Réponse GROQ vide');
+          }
+
+          this.logger.log(`✅ Réponse obtenue avec GROQ : ${modele}`);
+
+          return texte.trim();
+        } catch (error) {
+          derniereErreur = error as Error;
+
           this.logger.error(
-            `Erreur ${response.status} : ${errorBody.substring(0, 200)}`,
+            `❌ Échec GROQ ${modele} : ${derniereErreur.message}`,
           );
-          throw new Error(`HTTP ${response.status}`);
         }
-
-        const data = await response.json();
-        const texte = data.choices?.[0]?.message?.content;
-
-        if (!texte) {
-          throw new Error('Réponse IA vide');
-        }
-
-        this.logger.log(`Succès avec ${modele}`);
-        return texte.trim();
-      } catch (error) {
-        derniereErreur = error as Error;
-        this.logger.error(`Échec ${modele}: ${derniereErreur.message}`);
       }
+    } else {
+      this.logger.warn('⚠️ GROQ_API_KEY non configurée');
     }
 
-    throw new Error(`Tous les modèles ont échoué. ${derniereErreur?.message}`);
+    const openRouterKey = process.env.OPENROUTER_API_KEY;
+
+    if (openRouterKey) {
+      for (const modele of this.modelesOpenRouter) {
+        try {
+          this.logger.log(`🌐 Tentative OPENROUTER : ${modele}`);
+
+          const body: any = {
+            model: modele,
+            max_tokens: maxTokens,
+            messages: [
+              {
+                role: 'system',
+                content: system,
+              },
+              {
+                role: 'user',
+                content: userMessage,
+              },
+            ],
+            temperature,
+          };
+
+          if (forceJson) {
+            body.response_format = {
+              type: 'json_object',
+            };
+          }
+
+          const response = await fetch(this.openRouterApiUrl, {
+            method: 'POST',
+
+            headers: {
+              Authorization: `Bearer ${openRouterKey}`,
+              'Content-Type': 'application/json',
+
+              'HTTP-Referer': process.env.APP_URL || 'http://localhost:3001',
+
+              'X-Title': 'WorkPilot',
+            },
+
+            body: JSON.stringify(body),
+          });
+
+          if (response.status === 429) {
+            this.logger.warn(`⚠️ OPENROUTER rate limit : ${modele}`);
+
+            continue;
+          }
+
+          if (response.status === 404) {
+            this.logger.warn(`⚠️ Modèle OPENROUTER indisponible : ${modele}`);
+
+            continue;
+          }
+
+          if (response.status === 503) {
+            this.logger.warn(`⚠️ OPENROUTER service indisponible : ${modele}`);
+
+            continue;
+          }
+
+          if (!response.ok) {
+            const errorBody = await response.text();
+
+            this.logger.error(
+              `❌ OPENROUTER ${response.status} : ${errorBody.substring(
+                0,
+                300,
+              )}`,
+            );
+
+            continue;
+          }
+
+          const data = await response.json();
+
+          const texte = data.choices?.[0]?.message?.content;
+
+          if (!texte) {
+            throw new Error('Réponse OPENROUTER vide');
+          }
+
+          this.logger.log(`✅ Réponse obtenue avec OPENROUTER : ${modele}`);
+
+          return texte.trim();
+        } catch (error) {
+          derniereErreur = error as Error;
+
+          this.logger.error(
+            `❌ Échec OPENROUTER ${modele} : ${derniereErreur.message}`,
+          );
+        }
+      }
+    } else {
+      this.logger.warn('⚠️ OPENROUTER_API_KEY non configurée');
+    }
+
+    throw new Error(
+      `Tous les fournisseurs IA ont échoué. ${
+        derniereErreur?.message || 'Aucune réponse disponible'
+      }`,
+    );
   }
+
   private parserTaches(reponseBrute: string): TacheGeneree[] {
     this.logger.log(`Parsing de ${reponseBrute.length} caractères`);
     this.logger.debug(`Début réponse: ${reponseBrute.substring(0, 200)}`);
