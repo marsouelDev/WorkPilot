@@ -107,8 +107,21 @@ Précise les règles métier importantes :
 - Qui peut voir/modifier/supprimer quoi
 - Restrictions spécifiques par rôle
 - Conditions particulières d'accès
+-Gestion des permissions et des responsabilités
+-Conditions de validation des tâches et des Pull Requests
+Conclusion
 
-INSTRUCTION STRICTE : Réponds UNIQUEMENT avec le texte Markdown. Aucun préambule.`;
+Rédige une conclusion professionnelle de 2 à 4 paragraphes résumant :
+
+La finalité globale du projet
+Les principaux bénéfices attendus
+La valeur ajoutée du système pour les différents acteurs
+Les perspectives d'évolution possibles
+Les conditions nécessaires à la réussite et à la pérennité du projet
+
+La conclusion doit être cohérente avec l'ensemble du cahier des charges et ne doit pas introduire de nouvelles fonctionnalités non mentionnées dans les sections précédentes.
+
+INSTRUCTION STRICTE : Réponds UNIQUEMENT avec le texte Markdown. Aucun préambule, aucune explication supplémentaire et aucun commentaire en dehors du cahier des charges.`;
 
     const userPrompt = `Titre : ${titre}\nDescription : ${description}`;
 

@@ -9,6 +9,7 @@ import {
   ParseIntPipe,
   Patch,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -21,22 +22,25 @@ import { RoleGlobal } from '@prisma/client';
 import { RoleGuard } from '../../common/guards/roles.guard';
 import { ChefProjetGuard } from '../../common/guards/chef-projet.guard';
 import { Roles } from '../users/user-app.decorator';
-import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 interface RequestAvecUtilisateur extends Request {
-  user: { id: number; email: string; role: string };
+  user: {
+    id: number;
+    email: string;
+    role: string;
+  };
 }
-
 @ApiTags('Projects')
+@ApiBearerAuth('JWT')
 @UseGuards(JwtAuthGuard)
 @Controller('projects')
 export class ProjectsController {
   constructor(private readonly projectsService: ProjectsService) {}
 
   @ApiOperation({
-    summary: 'creer project  ',
+    summary: 'Créer un projet',
   })
-  @ApiBearerAuth('JWT')
   @Post()
   @Roles(RoleGlobal.membre)
   creerProjet(
@@ -47,9 +51,22 @@ export class ProjectsController {
   }
 
   @ApiOperation({
-    summary: 'liste les projects de chaques utilisateurs  ',
+    summary: 'Supprimer un projet',
+    description:
+      'Supprime un projet et toutes ses données associées. Seul le créateur peut supprimer.',
   })
-  @ApiBearerAuth('JWT')
+  @Delete(':id')
+  @Roles(RoleGlobal.membre)
+  supprimerProjet(
+    @Param('id', ParseIntPipe) projetId: number,
+    @Req() req: RequestAvecUtilisateur,
+  ) {
+    return this.projectsService.retirerProject(projetId, req.user.id);
+  }
+
+  @ApiOperation({
+    summary: "Lister les projets de l'utilisateur",
+  })
   @Get()
   @Roles(RoleGlobal.membre)
   listerMesProjets(@Req() req: RequestAvecUtilisateur) {
@@ -57,9 +74,18 @@ export class ProjectsController {
   }
 
   @ApiOperation({
-    summary: ' trouver le project par id',
+    summary: 'Lister tous les projets du système',
   })
-  @ApiBearerAuth('JWT')
+  @Get('admin/projects')
+  @UseGuards(RoleGuard)
+  @Roles(RoleGlobal.admin)
+  listeDesProjetSysteme() {
+    return this.projectsService.listeDesProjetSysteme();
+  }
+
+  @ApiOperation({
+    summary: 'Trouver un projet par son ID',
+  })
   @Get(':id')
   @Roles(RoleGlobal.membre)
   obtenirProjet(
@@ -68,26 +94,26 @@ export class ProjectsController {
   ) {
     return this.projectsService.trouverParId(id, req.user.id);
   }
+
   @ApiOperation({
-    summary: 'regenerer les cahier de charges ',
+    summary: 'Régénérer le cahier des charges',
   })
-  @ApiBearerAuth('JWT')
+  @Post(':id/regenerer')
   @Roles(RoleGlobal.membre)
   @UseGuards(ChefProjetGuard)
-  @Post(':id/regenerer')
   regenererCahierDesCharges(
     @Param('id', ParseIntPipe) id: number,
     @Req() req: RequestAvecUtilisateur,
   ) {
     return this.projectsService.regenererCahierDesCharges(id, req.user.id);
   }
+
   @ApiOperation({
-    summary: 'inviter un membre dans un project  ',
+    summary: 'Inviter un membre dans un projet',
   })
-  @ApiBearerAuth('JWT')
+  @Post(':id/membres')
   @Roles(RoleGlobal.membre)
   @UseGuards(ChefProjetGuard)
-  @Post(':id/membres')
   inviterMembre(
     @Param('id', ParseIntPipe) projetId: number,
     @Body() dto: InviteMemberDto,
@@ -95,13 +121,31 @@ export class ProjectsController {
   ) {
     return this.projectsService.inviterMembre(projetId, dto, req.user.id);
   }
+
   @ApiOperation({
-    summary: 'change de role pour un membre dans un project  ',
+    summary: 'Rechercher des utilisateurs par email',
   })
-  @ApiBearerAuth('JWT')
+  @Get('utilisateur/recherche')
+  @Roles(RoleGlobal.membre)
+  async rechercherUtilisateursParEmail(@Query('email') email: string) {
+    return this.projectsService.rechercherUtilisateursParEmail(email);
+  }
+
+  @ApiOperation({
+    summary: "Lister les membres d'un projet",
+  })
+  @Get(':id/listes/membres')
+  @Roles(RoleGlobal.membre)
+  listerMembresProjet(@Param('id', ParseIntPipe) projetId: number) {
+    return this.projectsService.listerMembresProjet(projetId);
+  }
+
+  @ApiOperation({
+    summary: "Changer le rôle d'un membre",
+  })
+  @Patch(':id/membres/:membreId/role')
   @Roles(RoleGlobal.membre)
   @UseGuards(ChefProjetGuard)
-  @Patch(':id/membres/:membreId/role')
   changerRole(
     @Param('id', ParseIntPipe) projetId: number,
     @Param('membreId', ParseIntPipe) membreId: number,
@@ -109,29 +153,43 @@ export class ProjectsController {
   ) {
     return this.projectsService.changeDeRole(projetId, membreId, dto.role);
   }
+
   @ApiOperation({
-    summary: 'supprimer un membre dans un poject  ',
+    summary: "Supprimer un membre d'un projet",
   })
-  @ApiBearerAuth('JWT')
-  @Roles(RoleGlobal.membre)
-  @UseGuards(ChefProjetGuard)
   @Delete(':id/membres/:utilisateurId/retirer')
   @HttpCode(HttpStatus.OK)
+  @Roles(RoleGlobal.membre)
+  @UseGuards(ChefProjetGuard)
   retirerMembre(
     @Param('id', ParseIntPipe) projetId: number,
-    @Param('utilisateurId', ParseIntPipe) utilisateurId: number,
+    @Param('utilisateurId', ParseIntPipe)
+    utilisateurId: number,
   ) {
     return this.projectsService.retirerMembre(projetId, utilisateurId);
   }
 
   @ApiOperation({
-    summary: 'liste tous les projects du systemes ',
+    summary: "Obtenir le cahier des charges d'un projet",
   })
-  @ApiBearerAuth('JWT')
-  @Get('admin/projects')
-  @UseGuards(JwtAuthGuard, RoleGuard)
-  @Roles(RoleGlobal.admin)
-  async listeDesProjetSysteme() {
-    return this.projectsService.listeDesProjetSysteme();
+  @Get(':id/cahier-des-charges')
+  @Roles(RoleGlobal.membre)
+  obtenirCahierDesCharges(
+    @Param('id', ParseIntPipe) projetId: number,
+    @Req() req: RequestAvecUtilisateur,
+  ) {
+    return this.projectsService.obtenirCahierDesCharges(projetId, req.user.id);
+  }
+
+  @ApiOperation({
+    summary: 'Obtenir toute les taches d project',
+  })
+  @Get(':projetId/taches')
+  @Roles(RoleGlobal.membre)
+  listerTachesDuProjet(
+    @Param('projetId', ParseIntPipe) projetId: number,
+    @Req() req: any,
+  ) {
+    return this.projectsService.listerTachesDuProjet(projetId, req.user.id);
   }
 }
