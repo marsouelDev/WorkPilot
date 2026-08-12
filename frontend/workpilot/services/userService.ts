@@ -35,7 +35,6 @@ export const userService = {
     if (!response.ok) {
       throw new Error(result.message);
     }
-    console.log(result);
     return result;
   },
 

@@ -1,12 +1,10 @@
 "use client";
 
 import { useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { LogOut } from "lucide-react";
-
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-
 import { useAuthStore } from "@/stores/authStore";
 
 interface NavProps {
@@ -14,112 +12,137 @@ interface NavProps {
 }
 
 export default function Nav({ children }: NavProps) {
-  const { user, token, hasHydrated, isLoadingProfile, logout } = useAuthStore();
   const router = useRouter();
-  console.log({
-    hasHydrated,
-    isLoadingProfile,
-    user,
-  });
+  const pathname = usePathname();
+
+  const { user, token, hasHydrated, isLoading, logout } = useAuthStore();
+
   useEffect(() => {
-    if (hasHydrated && !token) {
-      router.replace("/");
+    if (!hasHydrated) {
+      return;
+    }
+
+    if (!token) {
+      router.push("/login");
     }
   }, [hasHydrated, token, router]);
 
   const handleLogout = () => {
     logout();
-
-    router.replace("/");
+    router.push("/login");
   };
 
-  if (!hasHydrated) {
+  const getSegmentLabel = (segment: string) => {
+    const labels: Record<string, string> = {
+      dashboard: "Dashboard",
+      projects: "Projets",
+      users: "Utilisateurs",
+      profile: "Profil",
+      settings: "Paramètres",
+      tasks: "Tâches",
+      "cahier-des-charges": "Cahier des charges",
+      "create-project": "Créer un projet",
+      admin: "Administration",
+    };
+
     return (
-      <header className="h-16 border-b bg-white">
-        <div className="flex h-full items-center justify-between px-4">
-          <div className="flex items-center gap-3">
-            {children}
+      labels[segment] ??
+      segment
+        .replace(/-/g, " ")
+        .replace(/\b\w/g, (letter) => letter.toUpperCase())
+    );
+  };
 
-            <div className="space-y-2">
-              <Skeleton className="h-4 w-40" />
+  const segments = pathname.split("/").filter(Boolean);
 
-              <Skeleton className="h-3 w-28" />
-            </div>
-          </div>
+  const visibleSegments = segments.filter((segment, index) => {
+    if (segment === "projects" || segment === "Users") {
+      return false;
+    }
 
-          <div className="flex items-center gap-4">
-            <Skeleton className="h-10 w-10 rounded-full" />
+    if (segments[index - 1] === "projects" && !Number.isNaN(Number(segment))) {
+      return false;
+    }
 
-            <Skeleton className="hidden md:block h-5 w-24" />
+    if (segments[index - 1] === "Users" && !Number.isNaN(Number(segment))) {
+      return false;
+    }
 
-            <Skeleton className="h-8 w-24" />
-          </div>
-        </div>
+    return true;
+  });
+
+  if (!hasHydrated || isLoading) {
+    return (
+      <header className="flex h-16 items-center justify-between border-b px-4">
+        <Skeleton className="h-5 w-32" />
+        <Skeleton className="h-9 w-9 rounded-full" />
       </header>
     );
   }
 
-  if (!user || !token || isLoadingProfile) {
-    return (
-      <header className="h-16 border-b bg-white">
-        <div className="flex h-full items-center justify-between px-4">
-          <div className="flex items-center gap-3">
-            {children}
-
-            <div className="space-y-2">
-              <Skeleton className="h-4 w-40" />
-              <Skeleton className="h-3 w-28" />
-            </div>
-          </div>
-
-          <div className="flex items-center gap-4">
-            <Skeleton className="h-10 w-10 rounded-full" />
-
-            <Skeleton className="hidden md:block h-5 w-24" />
-
-            <Skeleton className="h-8 w-24" />
-          </div>
-        </div>
-      </header>
-    );
+  if (!token || !user) {
+    return null;
   }
+
   return (
-    <header className=" sticky  top-0  z-50  h-16  border-b  bg-white/90  backdrop-blur  ">
-      <div className=" flex h-full items-center justify-between px-3 ">
-        <div className="  flex  items-center  gap-2  sm:gap-4  min-w-0">
-          {children}
-          <div className="hidden xs:block">
-            <h1 className="truncate  text-sm sm:text-lg font-semibold text-gray-900 ">
-              Tableau de bord
-            </h1>
-            <p className=" hidden sm:block text-xs sm:text-sm text-gray-500">
-              Bienvenue sur WorkPilot
-            </p>
-          </div>
+    <header className="flex h-16 items-center justify-between border-b px-4">
+      <div className="flex min-w-0 items-center">
+        {children}
+
+        {/* Breadcrumb desktop */}
+        <nav className="hidden min-w-0 items-center gap-2 text-sm md:flex">
+          {visibleSegments.map((segment, index) => (
+            <div
+              key={`${segment}-${index}`}
+              className="flex min-w-0 items-center gap-2"
+            >
+              <span
+                className={
+                  index === visibleSegments.length - 1
+                    ? "truncate font-semibold text-foreground"
+                    : "truncate text-muted-foreground"
+                }
+              >
+                {getSegmentLabel(segment)}
+              </span>
+            </div>
+          ))}
+        </nav>
+
+        {/* Titre mobile */}
+        <div className="min-w-0 truncate text-sm font-semibold md:hidden">
+          {visibleSegments.length > 0
+            ? getSegmentLabel(visibleSegments[visibleSegments.length - 1])
+            : "Dashboard"}
+        </div>
+      </div>
+
+      {/* Utilisateur */}
+      <div className="flex items-center gap-3">
+        <div className="hidden text-right sm:block">
+          <p className="text-sm font-semibold">
+            {user.prenom} {user.nom}
+          </p>
+
+          <p className="text-xs text-muted-foreground">
+            {user.role === "admin" ? "Administrateur" : "Membre"}
+          </p>
         </div>
 
-        <div className="  flex items-center gap-2 sm:gap-6">
-          <div className=" flex items-center gap-2 ">
-            <div className=" flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-full  bg-emerald-600 text-whitefont-bold">
-              {user.nom?.charAt(0).toUpperCase()}
-            </div>
-
-            <div className="hidden md:block">
-              <p className="max-w-32 truncate font-medium text-gray-900 ">
-                {user.nom}
-              </p>
-            </div>
-            <span className=" hidden sm:block  rounded-full  bg-emerald-100   px-3 py-1  text-xs font-semibold capitalize text-emerald-70 ">
-              {user.role}
-            </span>
-          </div>
-
-          <Button variant="destructive" size="sm" onClick={handleLogout}>
-            <LogOut className="h-4 w-4 sm:hidden" />
-
-            <span className="hidden sm:inline">Déconnexion</span>
-          </Button>
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-semibold text-primary-foreground">
+          {user.prenom?.charAt(0).toUpperCase()}
+          {user.nom?.charAt(0).toUpperCase()}
         </div>
+
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={handleLogout}
+          title="Se déconnecter"
+          disabled={isLoading}
+        >
+          <LogOut className="h-4 w-4" />
+        </Button>
       </div>
     </header>
   );

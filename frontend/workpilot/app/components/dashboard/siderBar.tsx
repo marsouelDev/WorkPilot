@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Users, User, Settings } from "lucide-react";
+import { LayoutDashboard, Users, User, Folder } from "lucide-react";
 
 import { useAuthStore } from "@/stores/authStore";
 
@@ -38,10 +38,16 @@ const items = [
     roles: ["admin", "membre"],
   },
   {
-    title: "Paramètres",
-    url: "/dashboard/settings",
-    icon: Settings,
+    title: "Projects",
+    url: "/projects/admin",
+    icon: Folder,
     roles: ["admin"],
+  },
+  {
+    title: "Projects",
+    url: "/projects/Users",
+    icon: Folder,
+    roles: ["membre"],
   },
 ];
 

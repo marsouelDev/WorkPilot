@@ -1,19 +1,23 @@
 import { z } from "zod";
 
 export const ProjetSchema = z.object({
-  titre: z.string().email("Email invalide"),
-  descriptionSommaire: z
+  titre: z.string().min(1, "Le titre du projet est obligatoire"),
+
+  description: z
     .string()
     .min(
       20,
-      "La description doit avor au moins 20 caractere pour pouvoir generer le cahier de charge et ses taches",
+      "Décrivez votre besoin en au moins 20 caractères pour que l'IA puisse l'exploiter",
     ),
+
   depotGitUrl: z
     .string()
-    .url("L'URL du dépôt Git est invalide")
+    .url("Le lien du dépôt Git doit être une URL valide")
     .optional()
     .or(z.literal("")),
 });
+
+export type ProjetFormData = z.infer<typeof ProjetSchema>;
 
 export const InviteMemberSchema = z.object({
   email: z.string().email("Veuillez saisir une adresse email valide"),
