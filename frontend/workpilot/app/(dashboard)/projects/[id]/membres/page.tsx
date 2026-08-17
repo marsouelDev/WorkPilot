@@ -16,48 +16,56 @@ interface PageProps {
 export default function Page({ params }: PageProps) {
   const { id } = use(params);
   const projetId = Number(id);
+
   const { user, token } = useAuthStore();
-  const { membres, listerMembresProjet } = useProjectStore();
+
+  const { projet, listerMembresProjet, trouverProjetParId } = useProjectStore();
+
   useEffect(() => {
     if (!token || !Number.isInteger(projetId) || projetId <= 0) {
       return;
     }
 
+    // Récupérer le projet pour connaître son créateur
+    trouverProjetParId(token, projetId);
+
+    // Récupérer uniquement les membres
     listerMembresProjet(token, projetId);
-  }, [token, projetId, listerMembresProjet]);
-
-  const membreConnecte = membres.find(
-    (membre) => membre.utilisateurId === user?.id,
-  );
-
-  const estChefProjet = membreConnecte?.role === "chef_projet";
+  }, [token, projetId, trouverProjetParId, listerMembresProjet]);
 
   if (!Number.isInteger(projetId) || projetId <= 0) {
-    return (
-      <div className="p-6">
-        <p className="text-sm text-red-500">Identifiant du projet invalide.</p>
-      </div>
-    );
+    return <div className="p-6">Identifiant du projet invalide.</div>;
   }
 
+  /**
+   * Seul le créateur du projet peut inviter.
+   *
+   * Le chef est volontairement exclu de l'endpoint
+   * listerMembresProjet(), donc on ne cherche plus
+   * le chef dans "membres".
+   */
+  const estChefProjet = projet?.createurId === user?.id;
+
   return (
-    <div className="space-y-6 p-6">
+    <>
       <div className="mb-6">
         <Navigation projetId={projetId} active="members" />
       </div>
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Membres du projet</h1>
+      <div className="p-6">
+        <div className="mb-6 flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold">Membres du projet</h1>
 
-          <p className="text-sm text-muted-foreground">
-            Gestion des membres de ce projet
-          </p>
+            <p className="text-sm text-muted-foreground">
+              Gestion des membres de ce projet
+            </p>
+          </div>
+
+          {estChefProjet && <InviteMember projetId={projetId} />}
         </div>
 
-        {estChefProjet && <InviteMember projetId={projetId} />}
+        <MembresTable projetId={projetId} />
       </div>
-
-      <MembresTable projetId={projetId} />
-    </div>
+    </>
   );
 }

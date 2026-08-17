@@ -17,6 +17,13 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useAuthStore } from "@/stores/authStore";
 import { useProjectStore } from "@/stores/projectStore";
 
+const COLORS = {
+  primary: "#6366F1",
+  secondary: "#0F172A",
+  tertiary: "#B95F00",
+  neutral: "#F8F9FF",
+};
+
 export default function AdminProjectsPage() {
   const { token, hasHydrated } = useAuthStore();
   const { projets, isLoading, error, getSystemProjects } = useProjectStore();
@@ -90,17 +97,22 @@ export default function AdminProjectsPage() {
       <div className="flex min-h-100 items-center justify-center">
         <Card className="w-full max-w-md">
           <CardHeader>
-            <CardTitle>Impossible de charger les projets</CardTitle>
+            <CardTitle className="text-[#0F172A]">
+              Impossible de charger les projets
+            </CardTitle>
           </CardHeader>
 
           <CardContent className="space-y-4">
             <p className="text-sm text-destructive">{error}</p>
+
             <Button
               onClick={() => {
                 if (token) {
                   getSystemProjects(token);
                 }
               }}
+              className="text-white hover:opacity-90"
+              style={{ backgroundColor: COLORS.primary }}
             >
               Réessayer
             </Button>
@@ -109,6 +121,7 @@ export default function AdminProjectsPage() {
       </div>
     );
   }
+
 
   const totalProjets = projets.length;
 
@@ -132,8 +145,14 @@ export default function AdminProjectsPage() {
 
   return (
     <div className="space-y-6">
+
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Tous les projets</h1>
+        <h1
+          className="text-2xl font-bold tracking-tight"
+          style={{ color: COLORS.secondary }}
+        >
+          Tous les projets
+        </h1>
 
         <p className="mt-1 text-sm text-muted-foreground">
           Consultez tous les projets, leurs membres, leurs tâches et leurs
@@ -142,58 +161,97 @@ export default function AdminProjectsPage() {
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+
         <Card>
           <CardContent className="flex items-center gap-4 p-5">
-            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10">
-              <Folder className="h-6 w-6 text-primary" />
+            <div
+              className="flex h-12 w-12 items-center justify-center rounded-lg"
+              style={{ backgroundColor: `${COLORS.primary}15` }}
+            >
+              <Folder className="h-6 w-6" style={{ color: COLORS.primary }} />
             </div>
 
             <div>
               <p className="text-sm text-muted-foreground">Projets</p>
 
-              <p className="text-2xl font-bold">{totalProjets}</p>
+              <p
+                className="text-2xl font-bold"
+                style={{ color: COLORS.secondary }}
+              >
+                {totalProjets}
+              </p>
             </div>
           </CardContent>
         </Card>
 
         <Card>
           <CardContent className="flex items-center gap-4 p-5">
-            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10">
-              <Users className="h-6 w-6 text-primary" />
+            <div
+              className="flex h-12 w-12 items-center justify-center rounded-lg"
+              style={{ backgroundColor: `${COLORS.tertiary}15` }}
+            >
+              <Users className="h-6 w-6" style={{ color: COLORS.tertiary }} />
             </div>
 
             <div>
               <p className="text-sm text-muted-foreground">Membres</p>
 
-              <p className="text-2xl font-bold">{totalMembres}</p>
+              <p
+                className="text-2xl font-bold"
+                style={{ color: COLORS.secondary }}
+              >
+                {totalMembres}
+              </p>
             </div>
           </CardContent>
         </Card>
 
         <Card>
           <CardContent className="flex items-center gap-4 p-5">
-            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10">
-              <ListTodo className="h-6 w-6 text-primary" />
+            <div
+              className="flex h-12 w-12 items-center justify-center rounded-lg"
+              style={{ backgroundColor: `${COLORS.secondary}15` }}
+            >
+              <ListTodo
+                className="h-6 w-6"
+                style={{ color: COLORS.secondary }}
+              />
             </div>
 
             <div>
               <p className="text-sm text-muted-foreground">Tâches</p>
 
-              <p className="text-2xl font-bold">{totalTaches}</p>
+              <p
+                className="text-2xl font-bold"
+                style={{ color: COLORS.secondary }}
+              >
+                {totalTaches}
+              </p>
             </div>
           </CardContent>
         </Card>
 
         <Card>
           <CardContent className="flex items-center gap-4 p-5">
-            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10">
-              <CheckCircle2 className="h-6 w-6 text-primary" />
+            <div
+              className="flex h-12 w-12 items-center justify-center rounded-lg"
+              style={{ backgroundColor: `${COLORS.primary}15` }}
+            >
+              <CheckCircle2
+                className="h-6 w-6"
+                style={{ color: COLORS.primary }}
+              />
             </div>
 
             <div>
               <p className="text-sm text-muted-foreground">Tâches terminées</p>
 
-              <p className="text-2xl font-bold">{totalTachesTerminees}</p>
+              <p
+                className="text-2xl font-bold"
+                style={{ color: COLORS.secondary }}
+              >
+                {totalTachesTerminees}
+              </p>
             </div>
           </CardContent>
         </Card>
@@ -202,9 +260,17 @@ export default function AdminProjectsPage() {
       {projets.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-16">
-            <Folder className="mb-4 h-12 w-12 text-muted-foreground" />
+            <Folder
+              className="mb-4 h-12 w-12"
+              style={{ color: COLORS.primary }}
+            />
 
-            <h2 className="text-lg font-semibold">Aucun projet</h2>
+            <h2
+              className="text-lg font-semibold"
+              style={{ color: COLORS.secondary }}
+            >
+              Aucun projet
+            </h2>
 
             <p className="mt-1 text-center text-sm text-muted-foreground">
               Aucun projet n&apos;a encore été créé.
@@ -237,14 +303,27 @@ export default function AdminProjectsPage() {
                 key={projet.id}
                 className="flex h-full flex-col transition-shadow hover:shadow-md"
               >
+                {/* HEADER CARTE */}
+
                 <CardHeader>
                   <div className="flex items-start gap-3">
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10">
-                      <Folder className="h-5 w-5 text-primary" />
+                    <div
+                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg"
+                      style={{ backgroundColor: `${COLORS.primary}15` }}
+                    >
+                      <Folder
+                        className="h-5 w-5"
+                        style={{ color: COLORS.primary }}
+                      />
                     </div>
 
                     <div className="min-w-0">
-                      <CardTitle className="truncate">{projet.titre}</CardTitle>
+                      <CardTitle
+                        className="truncate"
+                        style={{ color: COLORS.secondary }}
+                      >
+                        {projet.titre}
+                      </CardTitle>
                     </div>
                   </div>
 
@@ -254,16 +333,30 @@ export default function AdminProjectsPage() {
                 </CardHeader>
 
                 <CardContent className="mt-auto space-y-5">
-                  <div className="rounded-lg border p-3">
+                  {/* CRÉATEUR — FOND NEUTRE */}
+
+                  <div
+                    className="rounded-lg border p-3"
+                    style={{
+                      backgroundColor: COLORS.neutral,
+                      borderColor: `${COLORS.primary}20`,
+                    }}
+                  >
                     <div className="mb-2 flex items-center gap-2">
-                      <UserRound className="h-4 w-4 text-muted-foreground" />
+                      <UserRound
+                        className="h-4 w-4"
+                        style={{ color: COLORS.tertiary }}
+                      />
 
                       <span className="text-xs font-medium text-muted-foreground">
                         Créateur
                       </span>
                     </div>
 
-                    <p className="text-sm font-semibold">
+                    <p
+                      className="text-sm font-semibold"
+                      style={{ color: COLORS.secondary }}
+                    >
                       {projet.createur?.username ?? "Utilisateur"}
                     </p>
 
@@ -272,90 +365,165 @@ export default function AdminProjectsPage() {
                     </p>
                   </div>
 
+                  {/* MEMBRES + TÂCHES — FOND NEUTRE */}
+
                   <div className="grid grid-cols-2 gap-3">
-                    <div className="rounded-lg border p-3">
+                    <div
+                      className="rounded-lg border p-3"
+                      style={{
+                        backgroundColor: COLORS.neutral,
+                        borderColor: `${COLORS.tertiary}20`,
+                      }}
+                    >
                       <div className="flex items-center gap-2 text-muted-foreground">
-                        <Users className="h-4 w-4" />
+                        <Users
+                          className="h-4 w-4"
+                          style={{ color: COLORS.tertiary }}
+                        />
 
                         <span className="text-xs">Membres</span>
                       </div>
 
-                      <p className="mt-1 text-xl font-bold">
+                      <p
+                        className="mt-1 text-xl font-bold"
+                        style={{ color: COLORS.secondary }}
+                      >
                         {totalMembresProjet}
                       </p>
                     </div>
 
-                    <div className="rounded-lg border p-3">
+                    <div
+                      className="rounded-lg border p-3"
+                      style={{
+                        backgroundColor: COLORS.neutral,
+                        borderColor: `${COLORS.primary}20`,
+                      }}
+                    >
                       <div className="flex items-center gap-2 text-muted-foreground">
-                        <ListTodo className="h-4 w-4" />
+                        <ListTodo
+                          className="h-4 w-4"
+                          style={{ color: COLORS.primary }}
+                        />
 
                         <span className="text-xs">Tâches</span>
                       </div>
 
-                      <p className="mt-1 text-xl font-bold">
+                      <p
+                        className="mt-1 text-xl font-bold"
+                        style={{ color: COLORS.secondary }}
+                      >
                         {totalTachesProjet}
                       </p>
                     </div>
                   </div>
 
-                  <div className="rounded-lg border p-3">
+                  {/* ÉTAT DES TÂCHES — FOND NEUTRE */}
+
+                  <div
+                    className="rounded-lg border p-3"
+                    style={{
+                      backgroundColor: COLORS.neutral,
+                      borderColor: `${COLORS.secondary}15`,
+                    }}
+                  >
                     <p className="mb-3 text-xs font-medium text-muted-foreground">
                       État des tâches
                     </p>
 
                     <div className="space-y-2">
                       <div className="flex items-center gap-2">
-                        <CircleDot className="h-4 w-4 text-muted-foreground" />
+                        <CircleDot
+                          className="h-4 w-4"
+                          style={{ color: COLORS.primary }}
+                        />
 
                         <span className="text-xs">Disponibles</span>
 
-                        <span className="ml-auto text-xs font-semibold">
+                        <span
+                          className="ml-auto text-xs font-semibold"
+                          style={{ color: COLORS.primary }}
+                        >
                           {tachesDisponibles}
                         </span>
                       </div>
 
                       <div className="flex items-center gap-2">
-                        <CircleDot className="h-4 w-4 text-muted-foreground" />
+                        <CircleDot
+                          className="h-4 w-4"
+                          style={{ color: COLORS.tertiary }}
+                        />
 
                         <span className="text-xs">En cours</span>
 
-                        <span className="ml-auto text-xs font-semibold">
+                        <span
+                          className="ml-auto text-xs font-semibold"
+                          style={{ color: COLORS.tertiary }}
+                        >
                           {tachesEnCours}
                         </span>
                       </div>
 
                       <div className="flex items-center gap-2">
-                        <CheckCircle2 className="h-4 w-4" />
+                        <CheckCircle2
+                          className="h-4 w-4"
+                          style={{ color: COLORS.secondary }}
+                        />
 
                         <span className="text-xs">Terminées</span>
 
-                        <span className="ml-auto text-xs font-semibold">
+                        <span
+                          className="ml-auto text-xs font-semibold"
+                          style={{ color: COLORS.secondary }}
+                        >
                           {tachesTerminees}
                         </span>
                       </div>
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-between rounded-lg border p-3">
+                  {/* CAHIER DES CHARGES */}
+
+                  <div
+                    className="flex items-center justify-between rounded-lg border p-3"
+                    style={{
+                      backgroundColor: COLORS.neutral,
+                      borderColor: `${COLORS.tertiary}20`,
+                    }}
+                  >
                     <div className="flex items-center gap-2">
-                      <FileText className="h-4 w-4 text-muted-foreground" />
+                      <FileText
+                        className="h-4 w-4"
+                        style={{ color: COLORS.tertiary }}
+                      />
 
                       <span className="text-sm">Cahier des charges</span>
                     </div>
 
                     <span
-                      className={`rounded-full px-2 py-1 text-xs font-medium ${
+                      className="rounded-full px-2 py-1 text-xs font-medium"
+                      style={
                         projet.cahierDesCharges
-                          ? "bg-green-100 text-green-700"
-                          : "bg-muted text-muted-foreground"
-                      }`}
+                          ? {
+                              backgroundColor: `${COLORS.tertiary}15`,
+                              color: COLORS.tertiary,
+                            }
+                          : {
+                              backgroundColor: "#ffffff",
+                              color: "#94a3b8",
+                            }
+                      }
                     >
                       {projet.cahierDesCharges ? "Disponible" : "Non généré"}
                     </span>
                   </div>
 
+                  {/* DATE */}
+
                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <Calendar className="h-4 w-4" />
+                    <Calendar
+                      className="h-4 w-4"
+                      style={{ color: COLORS.primary }}
+                    />
                     Créé le{" "}
                     {new Date(projet.createdAt).toLocaleDateString("fr-FR")}
                   </div>

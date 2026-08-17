@@ -188,8 +188,10 @@ export interface ProjectState {
     projetId: number,
     token: string,
   ) => Promise<CahierDesChargesResponse>;
+  trouverProjetParId: (token: string, projetId: number) => Promise<void>;
   listerMembresProjet: (token: string, projetId: number) => Promise<void>;
   clearError: () => void;
   clearProject: () => void;
+  clearTasks: () => void;
   clearCahierDesCharges: () => void;
 }

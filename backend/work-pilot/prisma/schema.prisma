@@ -23,6 +23,26 @@ enum Complexite {
   élevée
 }
 
+enum StatutTache {
+  disponible
+  attribuee
+  en_revue
+  retiree
+  terminee
+}
+
+enum RoleProjet {
+  chef_projet
+  developpeur
+  relecteur
+}
+
+enum RoleMessageIA {
+  utilisateur
+  assistant
+  systeme
+}
+
 model Utilisateur {
   id                     Int          @id @default(autoincrement())
   nom                    String
@@ -39,30 +59,22 @@ model Utilisateur {
   projetsCrees           Projet[]     @relation("ProjetsCrees")
   tachesAssignees        Tache[]      @relation("TachesAssignees")
   membres                Membre[]
-conversationsIA AssistanceIA[]
+
   @@map("utilisateurs")
 }
 
-enum StatutTache {
-  disponible
-  attribuee
-  en_revue
-  retiree
-  terminee
-}
-
 model Projet {
-  id                 Int      @id @default(autoincrement())
-  titre              String
-  descriptionSommaire String  @db.Text
-  depotGitUrl         String? @unique
-  createurId         Int
-  createur           Utilisateur @relation("ProjetsCrees", fields: [createurId], references: [id])
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
-  cahierDesCharges   CahierDesCharges?
-  taches             Tache[]
-  membres            Membre[]    
+  id                  Int               @id @default(autoincrement())
+  titre               String
+  descriptionSommaire String            @db.Text
+  depotGitUrl         String?           @unique
+  createurId          Int
+  createur            Utilisateur       @relation("ProjetsCrees", fields: [createurId], references: [id])
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+  cahierDesCharges    CahierDesCharges?
+  taches              Tache[]
+  membres             Membre[]
 
   @@map("projets")
 }
@@ -78,68 +90,57 @@ model CahierDesCharges {
 }
 
 model Tache {
-  id                 Int         @id @default(autoincrement())
+  id                 Int           @id @default(autoincrement())
   projetId           Int
-  projet             Projet      @relation(fields: [projetId], references: [id], onDelete: Cascade)
+  projet             Projet        @relation(fields: [projetId], references: [id], onDelete: Cascade)
   titre              String
-  descriptionGeneree String      @db.Text
-  statut             StatutTache @default(disponible)
+  descriptionGeneree String        @db.Text
+  statut             StatutTache   @default(disponible)
   assigneeId         Int?
-  assignee           Utilisateur? @relation("TachesAssignees",fields: [assigneeId],references: [id])
+  assignee           Utilisateur?  @relation("TachesAssignees", fields: [assigneeId], references: [id])
   echeance           DateTime?
-  createdAt          DateTime     @default(now())
-  updatedAt          DateTime     @updatedAt
   competences        String[]
   complexite         Complexite
-  conversationsIA AssistanceIA[]
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+  assistanceIA       AssistanceIA?
+
   @@map("taches")
 }
 
-enum RoleProjet {
-  chef_projet
-  developpeur
-  relecteur
-}
-
 model Membre {
-  id            Int         @id @default(autoincrement())
+  id Int @id @default(autoincrement())
+
   projetId      Int
   utilisateurId Int
   role          RoleProjet  @default(developpeur)
   dateAjout     DateTime    @default(now())
   projet        Projet      @relation(fields: [projetId], references: [id], onDelete: Cascade)
   utilisateur   Utilisateur @relation(fields: [utilisateurId], references: [id], onDelete: Cascade)
-  
-  @@unique([projetId, utilisateurId])  
+
+  @@unique([projetId, utilisateurId])
   @@map("membres")
-}
-enum RoleMessageIA {
-  utilisateur
-  assistant
-  systeme
 }
 
 model AssistanceIA {
-  id             Int      @id @default(autoincrement())
-  tacheId        Int
-  utilisateurId  Int
-  tache          Tache       @relation(fields: [tacheId], references: [id], onDelete: Cascade)
-  utilisateur    Utilisateur @relation(fields: [utilisateurId], references: [id], onDelete: Cascade)
-  messages       MessageIA[]
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id        Int         @id @default(autoincrement())
+  tacheId   Int         @unique
+  tache     Tache       @relation(fields: [tacheId], references: [id], onDelete: Cascade)
+  messages  MessageIA[]
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
 
-  @@unique([tacheId, utilisateurId])
   @@map("conversations_ia")
 }
 
 model MessageIA {
   id             Int           @id @default(autoincrement())
   conversationId Int
+  conversation   AssistanceIA  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   role           RoleMessageIA
   contenu        String        @db.Text
-  conversation   AssistanceIA @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   createdAt      DateTime      @default(now())
 
+  @@index([conversationId, createdAt])
   @@map("messages_ia")
 }

@@ -10,14 +10,11 @@ import {
   Loader2,
   RefreshCw,
 } from "lucide-react";
-
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
-
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas-pro";
-
 import {
   Document,
   HeadingLevel,
@@ -29,14 +26,18 @@ import {
   TextRun,
   WidthType,
 } from "docx";
-
 import { saveAs } from "file-saver";
+import { toast } from "sonner";
+
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuthStore } from "@/stores/authStore";
 import { useProjectStore } from "@/stores/projectStore";
 import Navigation from "../../../../components/Navigation/navigation";
-/*  CONSTANTES COULEURS*/
+
+/* ============================================================
+   CONSTANTES COULEURS
+============================================================ */
 
 const COLORS = {
   primary: "#6366F1",
@@ -44,7 +45,9 @@ const COLORS = {
   tertiary: "#B95F00",
 };
 
-/* UTILITAIRES */
+/* ============================================================
+   UTILITAIRES
+============================================================ */
 
 function nettoyerNomFichier(value: string): string {
   return value
@@ -68,11 +71,15 @@ function nettoyerMarkdown(value: string): string {
     .trim();
 }
 
-/* TYPES WORD */
+/* ============================================================
+   TYPES WORD
+============================================================ */
 
 type WordElement = Paragraph | Table;
 
-/*MARKDOWN -> WORD */
+/* ============================================================
+   MARKDOWN -> WORD
+============================================================ */
 
 function convertirMarkdownEnWord(markdown: string): WordElement[] {
   const lignes = markdown.split(/\r?\n/);
@@ -89,7 +96,7 @@ function convertirMarkdownEnWord(markdown: string): WordElement[] {
       continue;
     }
 
-    /* ================= CODE ================= */
+    /* CODE */
 
     if (ligneTrim.startsWith("```")) {
       const code: string[] = [];
@@ -124,7 +131,7 @@ function convertirMarkdownEnWord(markdown: string): WordElement[] {
       continue;
     }
 
-    /*  TABLEAU  */
+    /* TABLEAU */
 
     const ligneSuivante = lignes[i + 1]?.trim();
 
@@ -205,7 +212,7 @@ function convertirMarkdownEnWord(markdown: string): WordElement[] {
       continue;
     }
 
-    /*  H1  */
+    /* H1 */
 
     if (ligneTrim.startsWith("# ")) {
       elements.push(
@@ -223,7 +230,7 @@ function convertirMarkdownEnWord(markdown: string): WordElement[] {
       continue;
     }
 
-    /*  H2  */
+    /* H2 */
 
     if (ligneTrim.startsWith("## ")) {
       elements.push(
@@ -241,7 +248,7 @@ function convertirMarkdownEnWord(markdown: string): WordElement[] {
       continue;
     }
 
-    /* ================= H3 ================= */
+    /* H3 */
 
     if (ligneTrim.startsWith("### ")) {
       elements.push(
@@ -259,7 +266,7 @@ function convertirMarkdownEnWord(markdown: string): WordElement[] {
       continue;
     }
 
-    /* ================= H4 ================= */
+    /* H4 */
 
     if (ligneTrim.startsWith("#### ")) {
       elements.push(
@@ -277,7 +284,7 @@ function convertirMarkdownEnWord(markdown: string): WordElement[] {
       continue;
     }
 
-    /*  CHECKBOX  */
+    /* CHECKBOX */
 
     if (ligneTrim.startsWith("- [ ] ")) {
       elements.push(
@@ -307,7 +314,7 @@ function convertirMarkdownEnWord(markdown: string): WordElement[] {
       continue;
     }
 
-    /*  LISTE  */
+    /* LISTE */
 
     if (ligneTrim.startsWith("- ") || ligneTrim.startsWith("* ")) {
       elements.push(
@@ -326,7 +333,7 @@ function convertirMarkdownEnWord(markdown: string): WordElement[] {
       continue;
     }
 
-    /*  LISTE NUMÉROTÉE  */
+    /* LISTE NUMÉROTÉE */
 
     const listeNumerotee = ligneTrim.match(/^\d+\.\s+(.*)$/);
 
@@ -348,7 +355,7 @@ function convertirMarkdownEnWord(markdown: string): WordElement[] {
       continue;
     }
 
-    /*  CITATION  */
+    /* CITATION */
 
     if (ligneTrim.startsWith("> ")) {
       elements.push(
@@ -373,7 +380,7 @@ function convertirMarkdownEnWord(markdown: string): WordElement[] {
       continue;
     }
 
-    /*  SEPARATEUR  */
+    /* SEPARATEUR */
 
     if (ligneTrim === "---" || ligneTrim === "***") {
       elements.push(
@@ -390,7 +397,7 @@ function convertirMarkdownEnWord(markdown: string): WordElement[] {
       continue;
     }
 
-    /*  PARAGRAPHE  */
+    /* PARAGRAPHE */
 
     elements.push(
       new Paragraph({
@@ -413,14 +420,12 @@ function convertirMarkdownEnWord(markdown: string): WordElement[] {
   return elements;
 }
 
-/*  PAGE */
 
 export default function CahierDesChargesPage() {
   const params = useParams();
   const router = useRouter();
 
   const [isDownloading, setIsDownloading] = useState(false);
-
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
 
   const projetId = Number(params.id);
@@ -432,9 +437,93 @@ export default function CahierDesChargesPage() {
     isLoadingCahierDesCharges,
     cahierDesChargesError,
     getCahierDesCharges,
+    regenerateCahier,
+    isUpdating,
   } = useProjectStore();
 
-  /*  CHARGEMENT */
+  const handleRegenerer = async () => {
+    if (!token || !projetId || isUpdating) {
+      return;
+    }
+
+    try {
+      await regenerateCahier(token, projetId);
+
+      toast.custom(
+        (toastId) => (
+          <div className="relative w-95 rounded-xl border border-green-200 bg-green-50 p-4 shadow-lg">
+            <button
+              type="button"
+              onClick={() => toast.dismiss(toastId)}
+              className="absolute right-3 top-3 flex h-6 w-6 items-center justify-center rounded-md text-green-600 transition-colors hover:bg-green-100 hover:text-green-800"
+              aria-label="Fermer"
+            >
+              ×
+            </button>
+
+            <div className="flex items-start gap-3 pr-7">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-green-100">
+                <CheckCircle2 className="h-5 w-5 text-green-600" />
+              </div>
+
+              <div>
+                <h3 className="font-semibold text-green-700">
+                  Cahier des charges régénéré avec succès
+                </h3>
+
+                <p className="mt-1 text-sm leading-5 text-green-600">
+                  Le document a été mis à jour avec une nouvelle génération IA.
+                </p>
+              </div>
+            </div>
+          </div>
+        ),
+        {
+          duration: 3000,
+        },
+      );
+    } catch (error) {
+      toast.custom(
+        (toastId) => (
+          <div className="relative w-95 rounded-xl border border-red-200 bg-red-50 p-4 shadow-lg">
+            <button
+              type="button"
+              onClick={() => toast.dismiss(toastId)}
+              className="absolute right-3 top-3 flex h-6 w-6 items-center justify-center rounded-md text-red-600 transition-colors hover:bg-red-100 hover:text-red-800"
+              aria-label="Fermer"
+            >
+              ×
+            </button>
+
+            <div className="flex items-start gap-3 pr-7">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-red-100">
+                <span className="text-lg font-bold text-red-600">!</span>
+              </div>
+
+              <div>
+                <h3 className="font-semibold text-red-700">
+                  Impossible de régénérer le cahier des charges
+                </h3>
+
+                <p className="mt-1 text-sm leading-5 text-red-600">
+                  {error instanceof Error
+                    ? error.message
+                    : "Une erreur est survenue lors de la régénération."}
+                </p>
+              </div>
+            </div>
+          </div>
+        ),
+        {
+          duration: 5000,
+        },
+      );
+    }
+  };
+
+  /* ==========================================================
+     CHARGEMENT INITIAL
+  ========================================================== */
 
   useEffect(() => {
     if (!hasHydrated || !token || !projetId || Number.isNaN(projetId)) {
@@ -444,7 +533,9 @@ export default function CahierDesChargesPage() {
     getCahierDesCharges(projetId, token);
   }, [hasHydrated, token, projetId, getCahierDesCharges]);
 
-  /*  WORD */
+  /* ==========================================================
+     EXPORT WORD
+  ========================================================== */
 
   const telechargerWord = async () => {
     if (!cahierDesCharges) {
@@ -576,7 +667,9 @@ export default function CahierDesChargesPage() {
     }
   };
 
-  /* PDF */
+  /* ==========================================================
+     EXPORT PDF
+  ========================================================== */
 
   const telechargerPDF = async () => {
     const element = document.getElementById("cahier-des-charges-document");
@@ -607,7 +700,6 @@ export default function CahierDesChargesPage() {
       clone.style.overflow = "visible";
 
       clone.style.setProperty("background-color", "#ffffff", "important");
-
       clone.style.setProperty("color", "#111827", "important");
 
       document.body.appendChild(clone);
@@ -618,15 +710,10 @@ export default function CahierDesChargesPage() {
         const el = node as HTMLElement;
 
         el.style.setProperty("background-color", "#ffffff", "important");
-
         el.style.setProperty("color", "#111827", "important");
-
         el.style.setProperty("border-color", "#e5e7eb", "important");
-
         el.style.setProperty("outline-color", "#e5e7eb", "important");
-
         el.style.setProperty("box-shadow", "none", "important");
-
         el.style.setProperty("text-shadow", "none", "important");
       });
 
@@ -636,7 +723,6 @@ export default function CahierDesChargesPage() {
         const el = node as HTMLElement;
 
         el.style.setProperty("color", COLORS.primary, "important");
-
         el.style.setProperty("background-color", "transparent", "important");
       });
 
@@ -644,7 +730,6 @@ export default function CahierDesChargesPage() {
         const el = node as HTMLElement;
 
         el.style.setProperty("color", COLORS.secondary, "important");
-
         el.style.setProperty("background-color", "transparent", "important");
       });
 
@@ -664,7 +749,6 @@ export default function CahierDesChargesPage() {
         const el = node as HTMLElement;
 
         el.style.setProperty("color", COLORS.primary, "important");
-
         el.style.setProperty("text-decoration", "none", "important");
       });
 
@@ -674,11 +758,8 @@ export default function CahierDesChargesPage() {
         const table = node as HTMLElement;
 
         table.style.setProperty("background-color", "#ffffff", "important");
-
         table.style.setProperty("color", "#111827", "important");
-
         table.style.setProperty("border-collapse", "collapse", "important");
-
         table.style.setProperty("width", "100%", "important");
       });
 
@@ -686,7 +767,6 @@ export default function CahierDesChargesPage() {
         const thead = node as HTMLElement;
 
         thead.style.setProperty("background-color", "#f3f4f6", "important");
-
         thead.style.setProperty("color", "#111827", "important");
       });
 
@@ -694,13 +774,9 @@ export default function CahierDesChargesPage() {
         const th = node as HTMLElement;
 
         th.style.setProperty("background-color", "#f3f4f6", "important");
-
         th.style.setProperty("color", "#111827", "important");
-
         th.style.setProperty("border-color", "#d1d5db", "important");
-
         th.style.setProperty("break-inside", "avoid", "important");
-
         th.style.setProperty("page-break-inside", "avoid", "important");
       });
 
@@ -708,9 +784,7 @@ export default function CahierDesChargesPage() {
         const td = node as HTMLElement;
 
         td.style.setProperty("background-color", "#ffffff", "important");
-
         td.style.setProperty("color", "#111827", "important");
-
         td.style.setProperty("border-color", "#d1d5db", "important");
       });
 
@@ -720,7 +794,6 @@ export default function CahierDesChargesPage() {
         const tr = node as HTMLElement;
 
         tr.style.setProperty("break-inside", "avoid", "important");
-
         tr.style.setProperty("page-break-inside", "avoid", "important");
       });
 
@@ -732,7 +805,6 @@ export default function CahierDesChargesPage() {
           const el = node as HTMLElement;
 
           el.style.setProperty("break-inside", "avoid", "important");
-
           el.style.setProperty("page-break-inside", "avoid", "important");
         });
 
@@ -742,9 +814,7 @@ export default function CahierDesChargesPage() {
         const svg = node as SVGElement;
 
         svg.style.setProperty("color", COLORS.primary, "important");
-
         svg.style.setProperty("fill", "none", "important");
-
         svg.style.setProperty("stroke", COLORS.primary, "important");
       });
 
@@ -754,13 +824,9 @@ export default function CahierDesChargesPage() {
         const img = node as HTMLImageElement;
 
         img.style.setProperty("max-width", "100%", "important");
-
         img.style.setProperty("height", "auto", "important");
-
         img.style.setProperty("display", "block", "important");
-
         img.style.setProperty("margin-left", "auto", "important");
-
         img.style.setProperty("margin-right", "auto", "important");
       });
 
@@ -801,7 +867,6 @@ export default function CahierDesChargesPage() {
       });
 
       const pageWidth = pdf.internal.pageSize.getWidth();
-
       const pageHeight = pdf.internal.pageSize.getHeight();
 
       const marginLeft = 10;
@@ -810,13 +875,9 @@ export default function CahierDesChargesPage() {
       const marginBottom = 10;
 
       const contentWidth = pageWidth - marginLeft - marginRight;
-
       const contentHeight = pageHeight - marginTop - marginBottom;
-
       const pixelsPerMm = canvas.width / contentWidth;
-
       const pageHeightPx = Math.floor(contentHeight * pixelsPerMm);
-
       const nombrePages = Math.ceil(canvas.height / pageHeightPx);
 
       for (let pageIndex = 0; pageIndex < nombrePages; pageIndex++) {
@@ -825,9 +886,7 @@ export default function CahierDesChargesPage() {
         }
 
         const sourceY = pageIndex * pageHeightPx;
-
         const remainingHeight = canvas.height - sourceY;
-
         const currentHeightPx = Math.min(pageHeightPx, remainingHeight);
 
         const pageCanvas = document.createElement("canvas");
@@ -842,7 +901,6 @@ export default function CahierDesChargesPage() {
         }
 
         pageContext.fillStyle = "#ffffff";
-
         pageContext.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
 
         pageContext.drawImage(
@@ -883,8 +941,6 @@ export default function CahierDesChargesPage() {
     }
   };
 
-  /*CHARGEMENT */
-
   if (!hasHydrated || isLoadingCahierDesCharges) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center p-6">
@@ -917,8 +973,6 @@ export default function CahierDesChargesPage() {
     );
   }
 
-  /* ERREUR */
-
   if (cahierDesChargesError) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center p-6">
@@ -944,12 +998,31 @@ export default function CahierDesChargesPage() {
                     getCahierDesCharges(projetId, token);
                   }
                 }}
+                className="text-white hover:opacity-90"
                 style={{
                   backgroundColor: COLORS.primary,
                 }}
               >
                 <RefreshCw className="mr-2 h-4 w-4" />
                 Réessayer
+              </Button>
+
+              <Button
+                onClick={handleRegenerer}
+                disabled={isUpdating}
+                variant="outline"
+              >
+                {isUpdating ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Régénération...
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="mr-2 h-4 w-4" />
+                    Régénérer
+                  </>
+                )}
               </Button>
             </div>
           </CardContent>
@@ -958,9 +1031,11 @@ export default function CahierDesChargesPage() {
     );
   }
 
-  /* AUCUN DOCUMENT */
-
-  if (!cahierDesCharges) {
+  if (
+    !cahierDesCharges ||
+    !cahierDesCharges.projet ||
+    !cahierDesCharges.cahierDesCharges
+  ) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center p-6">
         <Card className="w-full max-w-lg">
@@ -971,36 +1046,44 @@ export default function CahierDesChargesPage() {
               Aucun cahier des charges n&apos;est disponible pour ce projet.
             </p>
 
-            <Button
-              className="mt-6"
-              variant="outline"
-              onClick={() => router.back()}
-            >
-              <ArrowLeft className="mr-2 h-4 w-4" />
-              Retour
-            </Button>
+            <div className="mt-6 flex flex-col gap-2 sm:flex-row">
+              <Button variant="outline" onClick={() => router.back()}>
+                <ArrowLeft className="mr-2 h-4 w-4" />
+                Retour
+              </Button>
+
+              <Button
+                onClick={() => {
+                  if (token && projetId) {
+                    getCahierDesCharges(projetId, token);
+                  }
+                }}
+                className="text-white hover:opacity-90"
+                style={{
+                  backgroundColor: COLORS.primary,
+                }}
+              >
+                <RefreshCw className="mr-2 h-4 w-4" />
+                Recharger
+              </Button>
+            </div>
           </CardContent>
         </Card>
       </div>
     );
   }
 
-  /* DONNÉES */
-
   const { projet, cahierDesCharges: cahier } = cahierDesCharges;
-
-  /* AFFICHAGE */
 
   return (
     <>
       <Navigation
-        projetId={projet.id}
+        projetId={projetId}
         active="cahier-des-charges"
-        disabled={isDownloading || isDownloadingPdf}
+        disabled={isDownloading || isDownloadingPdf || isUpdating}
       />
 
       <div className="mx-auto w-full max-w-7xl space-y-6 p-4 sm:p-6 lg:p-8">
-
         <div className="flex flex-col gap-5 border-b pb-6 lg:flex-row lg:items-center lg:justify-between">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
@@ -1038,19 +1121,31 @@ export default function CahierDesChargesPage() {
           </div>
 
           <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+
             <Button
+              onClick={handleRegenerer}
+              disabled={isUpdating || isDownloading || isDownloadingPdf}
               variant="outline"
-              onClick={() => router.back()}
-              disabled={isDownloading}
             >
-              <ArrowLeft className="mr-2 h-4 w-4" />
-              Retour
+              {isUpdating ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Régénération...
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                  Régénérer
+                </>
+              )}
             </Button>
+
+            {/* PDF */}
 
             <Button
               variant="outline"
               onClick={telechargerPDF}
-              disabled={isDownloadingPdf}
+              disabled={isDownloadingPdf || isUpdating}
             >
               {isDownloadingPdf ? (
                 <>
@@ -1065,9 +1160,12 @@ export default function CahierDesChargesPage() {
               )}
             </Button>
 
+            {/* WORD */}
+
             <Button
               onClick={telechargerWord}
-              disabled={isDownloading}
+              disabled={isDownloading || isUpdating}
+              className="text-white hover:opacity-90"
               style={{
                 backgroundColor: COLORS.primary,
               }}
@@ -1118,7 +1216,7 @@ export default function CahierDesChargesPage() {
           </CardContent>
         </Card>
 
-        {/*DOCUMENT */}
+        {/* DOCUMENT */}
 
         <div
           id="cahier-des-charges-document"
@@ -1312,7 +1410,7 @@ export default function CahierDesChargesPage() {
           </div>
         </div>
 
-        {/*FOOTER */}
+        {/* FOOTER */}
 
         <div className="flex flex-col gap-4 rounded-xl border bg-background p-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -1331,7 +1429,7 @@ export default function CahierDesChargesPage() {
               variant="outline"
               size="sm"
               onClick={telechargerPDF}
-              disabled={isDownloadingPdf}
+              disabled={isDownloadingPdf || isUpdating}
             >
               {isDownloadingPdf ? (
                 <>
@@ -1349,7 +1447,8 @@ export default function CahierDesChargesPage() {
             <Button
               size="sm"
               onClick={telechargerWord}
-              disabled={isDownloading}
+              disabled={isDownloading || isUpdating}
+              className="text-white hover:opacity-90"
               style={{
                 backgroundColor: COLORS.primary,
               }}

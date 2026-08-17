@@ -137,7 +137,7 @@ export default function InviteMember({ projetId }: InviteMemberProps) {
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger
         render={
-          <Button type="button" disabled={isUpdating}>
+          <Button type="button" disabled={isUpdating} className="bg-[#6366F1] hover:bg-[#0a0dce]">
             <UserPlus className="mr-2 h-4 w-4" />
             Inviter un membre
           </Button>

@@ -22,7 +22,7 @@ import {
   obtenirMembresProjet,
 } from "@/services/projectServices";
 
-export const useProjectStore = create<ProjectState>((set) => ({
+export const useProjectStore = create<ProjectState>((set, get) => ({
   projets: [],
   projet: null,
   isLoading: false,
@@ -182,9 +182,9 @@ export const useProjectStore = create<ProjectState>((set) => ({
 
     try {
       const data = await regenererCahierDesCharges(token, projetId);
+      await get().getCahierDesCharges(projetId, token);
 
       set({
-        cahierDesCharges: data,
         isUpdating: false,
         cahierDesChargesError: null,
       });
@@ -429,6 +429,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
 
     try {
       const membres = await obtenirMembresProjet(token, projetId);
+      console.log("MEMBRES RECUS PAR LE STORE :", membres);
 
       set({
         membres,
@@ -439,7 +440,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
         error instanceof Error
           ? error.message
           : "Impossible de récupérer les membres.";
-
+      console.error("Erreur membres projet :", error);
       set({
         membres: [],
         isLoadingMembres: false,
@@ -447,6 +448,18 @@ export const useProjectStore = create<ProjectState>((set) => ({
       });
 
       throw error;
+    }
+  },
+
+  trouverProjetParId: async (token, projetId) => {
+    try {
+      const projet = await obtenirProjet(token, projetId);
+
+      set({
+        projet,
+      });
+    } catch (error) {
+      console.error("Erreur récupération projet :", error);
     }
   },
 

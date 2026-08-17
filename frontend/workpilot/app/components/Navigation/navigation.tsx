@@ -1,8 +1,10 @@
-
 "use client";
 
 import Link from "next/link";
-import { FileText, ListTodo, Users } from "lucide-react";
+
+import { useRouter } from "next/navigation";
+
+import { ArrowLeft, FileText, ListTodo, Users } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 
@@ -17,6 +19,8 @@ export default function Navigation({
   active,
   disabled = false,
 }: ProjectNavigationProps) {
+  const router = useRouter();
+
   const menus = [
     {
       key: "cahier-des-charges" as const,
@@ -54,41 +58,48 @@ export default function Navigation({
               type="button"
               disabled
               aria-current="page"
-              className="
-                h-10
-                w-10
-                shrink-0
-                bg-[#080be6]
-                p-0
-                text-white
-                hover:bg-[#4f46e5]
-                sm:h-10
-                sm:w-auto
-                sm:px-4
-              "
+              className="h-10 w-10 shrink-0 bg-[#080be6] p-0 text-white hover:bg-[#4f46e5] sm:w-auto sm:px-4"
             >
               <Icon className="h-4 w-4 sm:mr-2" />
 
-              <span className="hidden sm:inline">
-                {menu.label}
-              </span>
+              <span className="hidden sm:inline">{menu.label}</span>
             </Button>
           );
         }
 
         return (
-          <Link key={menu.key} href={menu.href} className="shrink-0" aria-label={menu.label}>
-            <Button  type="button" variant="outline" disabled={disabled} className=" h-10 w-10 p-0 sm:h-10 sm:w-auto sm:px-4">
+          <Link
+            key={menu.key}
+            href={menu.href}
+            className="shrink-0"
+            aria-label={menu.label}
+          >
+            <Button
+              type="button"
+              variant="outline"
+              disabled={disabled}
+              className="h-10 w-10 p-0 sm:w-auto sm:px-4"
+            >
               <Icon className="h-4 w-4 sm:mr-2" />
 
-              <span className="hidden sm:inline">
-                {menu.label}
-              </span>
+              <span className="hidden sm:inline">{menu.label}</span>
             </Button>
           </Link>
         );
       })}
+
+      <Button
+        type="button"
+        variant="outline"
+        onClick={() => router.back()}
+        disabled={disabled}
+        aria-label="Retour"
+        className="ml-auto h-10 w-10 shrink-0 p-0 sm:w-auto sm:px-4"
+      >
+        <ArrowLeft className="h-4 w-4 sm:mr-2" />
+
+        <span className="hidden sm:inline">Retour</span>
+      </Button>
     </nav>
   );
 }
-

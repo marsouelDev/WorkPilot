@@ -1,11 +1,27 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { LogOut } from "lucide-react";
+import {
+  Bell,
+  CheckCheck,
+  ChevronDown,
+  Inbox,
+  LogOut,
+  User as UserIcon,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useAuthStore } from "@/stores/authStore";
+import { useNotificationStore } from "@/stores/notificationStore";
+
 
 interface NavProps {
   children?: React.ReactNode;
@@ -16,6 +32,37 @@ export default function Nav({ children }: NavProps) {
   const pathname = usePathname();
 
   const { user, token, hasHydrated, isLoading, logout } = useAuthStore();
+  const { notifications, markRead, markAllRead } = useNotificationStore();
+  const unreadCount = notifications.filter((n) => !n.lu).length;
+
+  const [notifOpen, setNotifOpen] = useState(false);
+  const closeTimer = useRef<number | null>(null);
+  const openNotifications = () => {
+    if (closeTimer.current) {
+      window.clearTimeout(closeTimer.current);
+      closeTimer.current = null;
+    }
+
+    setNotifOpen(true);
+  };
+
+  const scheduleCloseNotifications = () => {
+    if (closeTimer.current) {
+      window.clearTimeout(closeTimer.current);
+    }
+
+    closeTimer.current = window.setTimeout(() => {
+      setNotifOpen(false);
+    }, 200);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (closeTimer.current) {
+        window.clearTimeout(closeTimer.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!hasHydrated) {
@@ -32,14 +79,15 @@ export default function Nav({ children }: NavProps) {
     router.push("/login");
   };
 
+ 
   const getSegmentLabel = (segment: string) => {
     const labels: Record<string, string> = {
       dashboard: "Dashboard",
       projects: "Projets",
       users: "Utilisateurs",
       profile: "Profil",
-      settings: "Paramètres",
       tasks: "Tâches",
+      notifications: "Notifications",
       "cahier-des-charges": "Cahier des charges",
       "create-project": "Créer un projet",
       admin: "Administration",
@@ -73,8 +121,9 @@ export default function Nav({ children }: NavProps) {
 
   if (!hasHydrated || isLoading) {
     return (
-      <header className="flex h-16 items-center justify-between border-b px-4">
+      <header className="sticky top-0 z-40 flex h-16 items-center justify-between border-b bg-background/80 px-4 backdrop-blur-md">
         <Skeleton className="h-5 w-32" />
+
         <Skeleton className="h-9 w-9 rounded-full" />
       </header>
     );
@@ -84,12 +133,16 @@ export default function Nav({ children }: NavProps) {
     return null;
   }
 
+  /* ==========================================================
+     INTERFACE
+  ========================================================== */
+
   return (
-    <header className="flex h-16 items-center justify-between border-b px-4">
-      <div className="flex min-w-0 items-center">
+    <header className="sticky top-0 z-40 flex h-16 items-center justify-between border-b bg-background/80 px-4 backdrop-blur-md">
+
+      <div className="flex min-w-0 items-center gap-2">
         {children}
 
-        {/* Breadcrumb desktop */}
         <nav className="hidden min-w-0 items-center gap-2 text-sm md:flex">
           {visibleSegments.map((segment, index) => (
             <div
@@ -109,7 +162,6 @@ export default function Nav({ children }: NavProps) {
           ))}
         </nav>
 
-        {/* Titre mobile */}
         <div className="min-w-0 truncate text-sm font-semibold md:hidden">
           {visibleSegments.length > 0
             ? getSegmentLabel(visibleSegments[visibleSegments.length - 1])
@@ -117,10 +169,132 @@ export default function Nav({ children }: NavProps) {
         </div>
       </div>
 
-      {/* Utilisateur */}
       <div className="flex items-center gap-3">
+        {/*  NOTIFICATIONS au SURVOL */}
+
+        <DropdownMenu
+          open={notifOpen}
+          onOpenChange={(next) => {
+            /* On accepte uniquement la fermeture (escape, clic extérieur) */
+            if (!next) {
+              setNotifOpen(false);
+            }
+          }}
+        >
+          <DropdownMenuTrigger
+            onMouseEnter={openNotifications}
+            onMouseLeave={scheduleCloseNotifications}
+            onClick={() => {
+              setNotifOpen(false);
+              router.push("/notifications");
+            }}
+            render={
+              <Button
+                variant="ghost"
+                size="icon"
+                className="relative"
+                title="Notifications"
+              />
+            }
+          >
+            <Bell className="h-4 w-4" />
+
+            {unreadCount > 0 && (
+              <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
+                {unreadCount}
+              </span>
+            )}
+          </DropdownMenuTrigger>
+
+          <DropdownMenuContent
+            align="end"
+            className="w-80"
+            onMouseEnter={openNotifications}
+            onMouseLeave={scheduleCloseNotifications}
+          >
+            <div className="flex items-center justify-between px-3 py-2">
+              <p className="text-sm font-semibold">Notifications</p>
+
+              {unreadCount > 0 && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 gap-1.5 text-xs text-muted-foreground"
+                  onClick={markAllRead}
+                >
+                  <CheckCheck className="h-3.5 w-3.5" />
+                  Tout marquer lu
+                </Button>
+              )}
+            </div>
+
+            <DropdownMenuSeparator />
+
+            {notifications.length === 0 ? (
+              <div className="flex flex-col items-center gap-2 px-3 py-8 text-center">
+                <Inbox className="h-6 w-6 text-muted-foreground" />
+
+                <p className="text-sm text-muted-foreground">
+                  Aucune notification
+                </p>
+              </div>
+            ) : (
+              <div className="max-h-80 overflow-y-auto">
+                {notifications.slice(0, 3).map((notification) => (
+                  <div
+                    key={notification.id}
+                    onClick={() => markRead(notification.id)}
+                    className="flex cursor-pointer items-start gap-3 px-3 py-3 transition hover:bg-muted/60"
+                  >
+                    <span
+                      className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${
+                        notification.lu ? "bg-transparent" : "bg-primary"
+                      }`}
+                    />
+
+                    <div className="min-w-0 flex-1">
+                      <p
+                        className={`truncate text-sm ${
+                          notification.lu
+                            ? "font-normal text-muted-foreground"
+                            : "font-semibold text-foreground"
+                        }`}
+                      >
+                        {notification.titre}
+                      </p>
+
+                      <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
+                        {notification.description}
+                      </p>
+
+                      <p className="mt-1 text-[10px] text-muted-foreground/70">
+                        {notification.date}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <DropdownMenuSeparator />
+
+            <div className="p-1">
+              <Button
+                variant="ghost"
+                className="w-full justify-center text-xs"
+                onClick={() => {
+                  setNotifOpen(false);
+                  router.push("/notifications");
+                }}
+              >
+                Voir toutes les notifications
+              </Button>
+            </div>
+          </DropdownMenuContent>
+        </DropdownMenu>
+
         <div className="hidden text-right sm:block">
-          <p className="text-sm font-semibold">
+          <p className="text-sm font-semibold leading-tight">
             {user.prenom} {user.nom}
           </p>
 
@@ -129,20 +303,53 @@ export default function Nav({ children }: NavProps) {
           </p>
         </div>
 
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-semibold text-primary-foreground">
-          {user.prenom?.charAt(0).toUpperCase()}
-          {user.nom?.charAt(0).toUpperCase()}
-        </div>
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <Button
+                variant="ghost"
+                className="h-auto gap-1.5 rounded-full p-1 hover:bg-muted"
+              />
+            }
+          >
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#6366F1] text-sm font-semibold text-primary-foreground">
+              {user.prenom?.charAt(0).toUpperCase()}
+              {user.nom?.charAt(0).toUpperCase()}
+            </div>
 
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={handleLogout}
-          title="Se déconnecter"
-          disabled={isLoading}
-        >
-          <LogOut className="h-4 w-4" />
-        </Button>
+            <ChevronDown className="h-4 w-4 text-muted-foreground" />
+          </DropdownMenuTrigger>
+
+          <DropdownMenuContent align="end" className="w-56">
+            <div className="flex flex-col space-y-1 px-2 py-1.5">
+              <p className="text-sm font-medium">
+                {user.prenom} {user.nom}
+              </p>
+
+              <p className="text-xs text-muted-foreground">
+                {user.role === "admin" ? "Administrateur" : "Membre"}
+              </p>
+            </div>
+
+            <DropdownMenuSeparator />
+
+            <DropdownMenuItem onClick={() => router.push("/profile")}>
+              <UserIcon className="h-4 w-4" />
+              Profil
+            </DropdownMenuItem>
+
+            <DropdownMenuSeparator />
+
+            <DropdownMenuItem
+              onClick={handleLogout}
+              disabled={isLoading}
+              className="text-destructive focus:bg-destructive/10 focus:text-destructive"
+            >
+              <LogOut className="h-4 w-4" />
+              Déconnexion
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </header>
   );

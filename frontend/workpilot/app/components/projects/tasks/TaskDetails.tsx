@@ -7,9 +7,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-
 import { Badge } from "@/components/ui/badge";
-
 import { Tache } from "@/types/projectType";
 
 interface TaskDetailsDialogProps {
@@ -90,9 +88,7 @@ export default function TaskDetailsDialog({
                 {task.titre}
               </DialogTitle>
 
-              <DialogDescription>
-                Détails de la tâche numéro : {task.id}
-              </DialogDescription>
+              <DialogDescription></DialogDescription>
             </DialogHeader>
 
             <div className="max-h-[65vh] space-y-5 overflow-y-auto py-2 pr-2">

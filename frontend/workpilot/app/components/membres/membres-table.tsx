@@ -2,7 +2,16 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ArrowUpDown, Loader2, Search, Pencil, Trash2 } from "lucide-react";
+import {
+  ArrowUpDown,
+  Loader2,
+  Search,
+  Pencil,
+  Trash2,
+  Users,
+  Code2,
+  Eye,
+} from "lucide-react";
 import {
   ColumnDef,
   flexRender,
@@ -51,6 +60,7 @@ export default function MembresTable({ projetId }: MembresTableProps) {
 
   const [sorting, setSorting] = useState<SortingState>([]);
   const [globalFilter, setGlobalFilter] = useState("");
+
   const {
     membres,
     isLoadingMembres,
@@ -67,7 +77,6 @@ export default function MembresTable({ projetId }: MembresTableProps) {
 
     listerMembresProjet(token, projetId);
   }, [token, projetId, listerMembresProjet]);
-  
 
   const [membreSelectionne, setMembreSelectionne] =
     useState<MembreProjet | null>(null);
@@ -75,6 +84,37 @@ export default function MembresTable({ projetId }: MembresTableProps) {
   const [dialogRetraitOpen, setDialogRetraitOpen] = useState(false);
   const [nouveauRole, setNouveauRole] = useState<RoleMembre | "">("");
   const [isActionLoading, setIsActionLoading] = useState(false);
+
+
+  const stats = useMemo(() => {
+    return {
+      total: membres.length,
+      developpeurs: membres.filter((m) => m.role === "developpeur").length,
+      relecteurs: membres.filter((m) => m.role === "relecteur").length,
+    };
+  }, [membres]);
+
+  const statCards = [
+    {
+      label: "Total membres",
+      value: stats.total,
+      icon: Users,
+      classes: "bg-[#6366F1]/10 text-[#6366F1]",
+    },
+
+    {
+      label: "Développeurs",
+      value: stats.developpeurs,
+      icon: Code2,
+      classes: "bg-emerald-500/10 text-emerald-600",
+    },
+    {
+      label: "Relecteurs",
+      value: stats.relecteurs,
+      icon: Eye,
+      classes: "bg-sky-500/10 text-sky-600",
+    },
+  ];
 
   const columns = useMemo<ColumnDef<MembreProjet>[]>(
     () => [
@@ -245,6 +285,7 @@ export default function MembresTable({ projetId }: MembresTableProps) {
       },
     },
   });
+
   const handleChangerRole = async () => {
     if (!token || !membreSelectionne || !nouveauRole) {
       return;
@@ -268,6 +309,7 @@ export default function MembresTable({ projetId }: MembresTableProps) {
       setIsActionLoading(false);
     }
   };
+
   const handleRetirerMembre = async () => {
     if (!token || !membreSelectionne) {
       return;
@@ -318,6 +360,34 @@ export default function MembresTable({ projetId }: MembresTableProps) {
   return (
     <>
       <div className="space-y-4">
+       
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+          {statCards.map((stat) => {
+            const Icon = stat.icon;
+
+            return (
+              <div
+                key={stat.label}
+                className="flex items-center gap-3 rounded-xl border bg-background p-4 shadow-sm"
+              >
+                <div
+                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${stat.classes}`}
+                >
+                  <Icon className="h-5 w-5" />
+                </div>
+
+                <div className="min-w-0">
+                  <p className="truncate text-xs text-muted-foreground">
+                    {stat.label}
+                  </p>
+
+                  <p className="text-xl font-bold tabular-nums">{stat.value}</p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
         <div className="relative w-full max-w-sm">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
 
@@ -331,7 +401,6 @@ export default function MembresTable({ projetId }: MembresTableProps) {
 
         <div className="rounded-md border">
           <Table>
-            {/* HEADER */}
             <TableHeader>
               {table.getHeaderGroups().map((headerGroup) => (
                 <TableRow key={headerGroup.id}>
@@ -411,6 +480,7 @@ export default function MembresTable({ projetId }: MembresTableProps) {
           </div>
         </div>
       </div>
+
       <Dialog open={dialogRoleOpen} onOpenChange={setDialogRoleOpen}>
         <DialogContent>
           <DialogHeader>
@@ -438,11 +508,8 @@ export default function MembresTable({ projetId }: MembresTableProps) {
               className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
             >
               <option value="">Sélectionner un rôle</option>
-
               <option value="developpeur">Développeur</option>
-
               <option value="relecteur">Relecteur</option>
-
               <option value="chef_projet">Chef de projet</option>
             </select>
           </div>
@@ -465,6 +532,7 @@ export default function MembresTable({ projetId }: MembresTableProps) {
                 !membreSelectionne ||
                 nouveauRole === membreSelectionne.role
               }
+              className="bg-[#6366F1] hover:bg-[#0e11be]"
               onClick={handleChangerRole}
             >
               {isActionLoading ? (
@@ -479,6 +547,7 @@ export default function MembresTable({ projetId }: MembresTableProps) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
       <Dialog open={dialogRetraitOpen} onOpenChange={setDialogRetraitOpen}>
         <DialogContent>
           <DialogHeader>
