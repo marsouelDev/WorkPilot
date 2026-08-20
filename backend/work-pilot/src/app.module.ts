@@ -12,6 +12,12 @@ import { ProjectsModule } from './projects/projects.module';
 import { TasksModule } from './tasks/tasks.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { AssistanceIaModule } from './assistance-ia/assistance-ia.module';
+import { NotificationModule } from './notification/notification.module';
+import { CryptoService } from './crypto/crypto.service';
+import { CryptoModule } from './crypto/crypto.module';
+import { GithubService } from './github/github.service';
+import { GithubModule } from './github/github.module';
+import { PullRequestsModule } from './pull-requests/pull-requests.module';
 
 @Module({
   imports: [
@@ -28,8 +34,12 @@ import { AssistanceIaModule } from './assistance-ia/assistance-ia.module';
     ProjectsModule,
     TasksModule,
     AssistanceIaModule,
+    NotificationModule,
+    CryptoModule,
+    GithubModule,
+    PullRequestsModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [AppService, CryptoService, GithubService],
 })
 export class AppModule {}

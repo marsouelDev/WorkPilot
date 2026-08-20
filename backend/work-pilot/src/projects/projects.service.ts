@@ -3,12 +3,21 @@ import {
   Logger,
   NotFoundException,
   ForbiddenException,
+  BadRequestException,
 } from '@nestjs/common';
+import { Octokit } from '@octokit/rest';
 import { AiService, TacheGeneree } from '../ai/ai.service';
 import { DatabaseService } from '../database/database.service';
-import { CreateProjectDto } from './dto/create-project-dto';
 import { EmailService } from '../email/email.service';
+import { CreateProjectDto } from './dto/create-project-dto';
 import { InviteMemberDto } from './dto/invite-member.dto';
+import { NotificationService } from '../notification/notification.service';
+import { CryptoService } from '../crypto/crypto.service';
+import { GithubService } from '../github/github.service';
+
+const GITHUB_API_HEADERS = {
+  'X-GitHub-Api-Version': '2022-11-28',
+};
 
 @Injectable()
 export class ProjectsService {
@@ -18,18 +27,65 @@ export class ProjectsService {
     private readonly ai: AiService,
     private readonly databaseService: DatabaseService,
     private readonly emailService: EmailService,
+    private readonly notifications: NotificationService,
+    private readonly crypto: CryptoService,
+    private readonly github: GithubService,
   ) {}
 
   async creerProjet(createurId: number, dto: CreateProjectDto) {
-    if (dto.depotGitUrl) {
-      const existant = await this.databaseService.projet.findUnique({
-        where: { depotGitUrl: dto.depotGitUrl },
+    const createur = await this.databaseService.utilisateur.findUnique({
+      where: { id: createurId },
+    });
+
+    if (!createur) {
+      throw new BadRequestException('Utilisateur introuvable');
+    }
+
+    const tokenGithub = await this.getGithubToken(createurId);
+
+    if (!tokenGithub || !createur.githubUsername) {
+      throw new BadRequestException(
+        'Vous devez connecter votre compte GitHub avant de créer un projet.',
+      );
+    }
+
+    const nomDepot = this.genererNomDepot(dto.titre);
+
+    const octokit = new Octokit({
+      auth: tokenGithub,
+      userAgent: 'WorkPilot/1.0',
+    });
+
+    let depotGitUrl: string;
+
+    try {
+      this.logger.log(
+        `Création du dépôt "${nomDepot}" chez @${createur.githubUsername}...`,
+      );
+
+      const descriptionPropre = dto.description
+        .replace(/[\n\r\t]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .substring(0, 350);
+
+      const { data: repo } = await octokit.repos.createForAuthenticatedUser({
+        name: nomDepot,
+        description: descriptionPropre,
+        private: true,
+        auto_init: false,
+        headers: GITHUB_API_HEADERS,
       });
-      if (existant) {
-        throw new Error(
-          `Un projet avec l'URL "${dto.depotGitUrl}" existe déjà (ID: ${existant.id})`,
-        );
-      }
+
+      depotGitUrl = repo.html_url;
+
+      this.logger.log(`Dépôt créé : ${depotGitUrl}`);
+    } catch (error: any) {
+      this.logger.error('Erreur création dépôt GitHub', error);
+
+      throw new BadRequestException(
+        `Impossible de créer le dépôt "${nomDepot}" sur votre compte GitHub. Vérifiez que ce nom n'existe pas déjà.`,
+      );
     }
 
     let contenuCdc: string | null = null;
@@ -37,27 +93,31 @@ export class ProjectsService {
 
     try {
       this.logger.log(`Génération du CDC pour "${dto.titre}"...`);
+
       contenuCdc = await this.ai.genererCahierDesCharges(
         dto.titre,
         dto.description,
       );
+
       this.logger.log(`CDC généré (${contenuCdc?.length || 0} caractères)`);
 
       if (contenuCdc) {
         this.logger.log('Découpage en tâches...');
+
         tachesGenerees = await this.ai.genererTaches(contenuCdc);
+
         this.logger.log(`${tachesGenerees.length} tâches générées`);
       }
     } catch (error) {
-      this.logger.error('❌ Erreur IA', error);
+      this.logger.error('Erreur IA (non bloquante)', error);
     }
 
-    return this.databaseService.$transaction(async (tx) => {
+    const result = await this.databaseService.$transaction(async (tx) => {
       const projet = await tx.projet.create({
         data: {
           titre: dto.titre,
           descriptionSommaire: dto.description,
-          depotGitUrl: dto.depotGitUrl || null,
+          depotGitUrl: depotGitUrl,
           createurId,
         },
       });
@@ -71,6 +131,7 @@ export class ProjectsService {
       });
 
       let cahierDesCharges: any = null;
+
       if (contenuCdc) {
         cahierDesCharges = await tx.cahierDesCharges.create({
           data: { projetId: projet.id, contenuGenere: contenuCdc },
@@ -78,6 +139,7 @@ export class ProjectsService {
       }
 
       let taches: { id: number; titre: string }[] = [];
+
       if (tachesGenerees.length > 0) {
         await tx.tache.createMany({
           data: tachesGenerees.map((t) => ({
@@ -96,15 +158,35 @@ export class ProjectsService {
         });
       }
 
-      this.logger.log(`Projet créé avec ${taches.length} tâches`);
+      this.logger.log(`Projet créé en base avec ${taches.length} tâche(s)`);
 
-      return {
-        projet,
-        cahierDesCharges,
-        taches,
-        generationReussie: !!cahierDesCharges,
-      };
+      return { projet, cahierDesCharges, taches };
     });
+
+    try {
+      await this.pousserFichiersInitiaux(
+        octokit,
+        createur.githubUsername,
+        nomDepot,
+        dto.titre,
+        dto.description,
+        contenuCdc,
+      );
+
+      this.logger.log(`Fichiers initiaux poussés sur ${nomDepot}`);
+    } catch (error: any) {
+      this.logger.warn(
+        `Impossible de pousser les fichiers sur GitHub : ${error.message}`,
+      );
+    }
+
+    return {
+      projet: result.projet,
+      cahierDesCharges: result.cahierDesCharges,
+      taches: result.taches,
+      generationReussie: !!result.cahierDesCharges,
+      depotGitUrl,
+    };
   }
 
   async trouverParId(projetId: number, utilisateurId: number) {
@@ -114,7 +196,14 @@ export class ProjectsService {
         cahierDesCharges: true,
         taches: true,
         createur: {
-          select: { id: true, nom: true, prenom: true, email: true },
+          select: {
+            id: true,
+            nom: true,
+            prenom: true,
+            email: true,
+            githubUsername: true,
+            githubToken: true,
+          },
         },
         membres: {
           include: {
@@ -145,11 +234,11 @@ export class ProjectsService {
   async listerProjetsDeUtilisateur(utilisateurId: number) {
     return this.databaseService.projet.findMany({
       where: {
-        membres: {
-          some: { utilisateurId },
-        },
+        OR: [
+          { createurId: utilisateurId },
+          { membres: { some: { utilisateurId } } },
+        ],
       },
-
       include: {
         _count: {
           select: {
@@ -157,7 +246,6 @@ export class ProjectsService {
             membres: true,
           },
         },
-
         createur: {
           select: {
             id: true,
@@ -166,7 +254,6 @@ export class ProjectsService {
             email: true,
           },
         },
-
         membres: {
           include: {
             utilisateur: {
@@ -179,17 +266,13 @@ export class ProjectsService {
             },
           },
         },
-
         cahierDesCharges: true,
-
         taches: true,
       },
-
-      orderBy: {
-        updatedAt: 'desc',
-      },
+      orderBy: { updatedAt: 'desc' },
     });
   }
+
   async inviterMembre(
     projetId: number,
     dto: InviteMemberDto,
@@ -197,8 +280,20 @@ export class ProjectsService {
   ) {
     const projet = await this.databaseService.projet.findUnique({
       where: { id: projetId },
-      include: { createur: true },
+      include: {
+        createur: {
+          select: {
+            id: true,
+            nom: true,
+            prenom: true,
+            email: true,
+            githubUsername: true,
+            githubToken: true,
+          },
+        },
+      },
     });
+
     if (!projet) {
       throw new NotFoundException('Projet introuvable');
     }
@@ -206,6 +301,7 @@ export class ProjectsService {
     const utilisateur = await this.databaseService.utilisateur.findUnique({
       where: { email: dto.email },
     });
+
     if (!utilisateur) {
       throw new NotFoundException('Utilisateur introuvable');
     }
@@ -239,15 +335,24 @@ export class ProjectsService {
         projetTitre: projet.titre,
         projetId: projet.id,
         role: membre.role,
-
         inviteurNom: inviteur
           ? `${inviteur.prenom} ${inviteur.nom}`
           : 'Un membre',
       });
+      await this.notifications.creer(utilisateur.id, {
+        type: 'invitation_projet',
+        titre: 'Invitation à un projet',
+        message: `${inviteur ? `${inviteur.prenom} ${inviteur.nom}` : 'Quelqu’un'} vous a invité au projet "${projet.titre}" en tant que ${dto.role}.`,
+        projetId: projet.id,
+      });
 
       this.logger.log(
-        `Membre ${utilisateur.email} invité au projet "${projet.titre}" avec le rôle ${dto.role},par ${inviteur?.email}`,
+        `Membre ${utilisateur.email} invité au projet "${projet.titre}" avec le rôle ${dto.role} par ${inviteur?.email}`,
       );
+
+      if (utilisateur.githubUsername && projet.depotGitUrl) {
+        await this.inviterSurGithub(projet, utilisateur.githubUsername);
+      }
 
       return membre;
     } catch (error: any) {
@@ -281,9 +386,7 @@ export class ProjectsService {
         email: true,
         telephone: true,
       },
-      orderBy: {
-        email: 'asc',
-      },
+      orderBy: { email: 'asc' },
       take: 10,
     });
 
@@ -344,6 +447,12 @@ export class ProjectsService {
         ancienRole,
       },
     );
+    await this.notifications.creer(membre.utilisateurId, {
+      type: 'changement_role',
+      titre: 'Changement de rôle',
+      message: `Votre rôle sur le projet "${membre.projet.titre}" est passé de ${ancienRole} à ${nouveauRole}.`,
+      projetId: membre.projetId,
+    });
 
     this.logger.log(
       `Rôle de ${membre.utilisateur.email} changé : ${ancienRole} → ${nouveauRole}`,
@@ -355,7 +464,20 @@ export class ProjectsService {
   async retirerMembre(projetId: number, utilisateurId: number) {
     const projet = await this.databaseService.projet.findUnique({
       where: { id: projetId },
+      include: {
+        createur: {
+          select: {
+            id: true,
+            nom: true,
+            prenom: true,
+            email: true,
+            githubUsername: true,
+            githubToken: true,
+          },
+        },
+      },
     });
+
     if (!projet) {
       throw new NotFoundException('Projet introuvable');
     }
@@ -384,10 +506,20 @@ export class ProjectsService {
         projetTitre: projet.titre,
         projetId: projet.id,
       });
+      await this.notifications.creer(utilisateurId, {
+        type: 'retrait_projet',
+        titre: 'Retrait d’un projet',
+        message: `Vous avez été retiré du projet "${projet.titre}".`,
+        projetId: projet.id,
+      });
 
       this.logger.log(
         `Membre ${utilisateur.email} retiré du projet "${projet.titre}"`,
       );
+
+      if (utilisateur.githubUsername && projet.depotGitUrl) {
+        await this.retirerDeGithub(projet, utilisateur.githubUsername);
+      }
     }
 
     return { message: 'Membre retiré avec succès' };
@@ -428,6 +560,7 @@ export class ProjectsService {
 
     try {
       this.logger.log(`Régénération du CDC pour le projet ${projetId}...`);
+
       contenuCdc = await this.ai.genererCahierDesCharges(
         projet.titre,
         projet.descriptionSommaire,
@@ -446,16 +579,10 @@ export class ProjectsService {
         where: { projetId, statut: 'disponible' },
       });
 
-      await tx.cahierDesCharges.deleteMany({
-        where: { projetId },
-      });
+      await tx.cahierDesCharges.deleteMany({ where: { projetId } });
 
-      let cahierDesCharges: {
-        id: number;
-        projetId: number;
-        contenuGenere: string;
-        dateGeneration: Date;
-      } | null = null;
+      let cahierDesCharges: any = null;
+
       if (contenuCdc) {
         cahierDesCharges = await tx.cahierDesCharges.create({
           data: { projetId, contenuGenere: contenuCdc },
@@ -463,6 +590,7 @@ export class ProjectsService {
       }
 
       let taches: { id: number; titre: string }[] = [];
+
       if (tachesGenerees.length > 0) {
         await tx.tache.createMany({
           data: tachesGenerees.map((t) => ({
@@ -482,7 +610,7 @@ export class ProjectsService {
       }
 
       this.logger.log(
-        `✅ CDC régénéré : ${tachesSupprimees.count} tâches supprimées, ${taches.length} créées`,
+        `CDC régénéré : ${tachesSupprimees.count} tâches supprimées, ${taches.length} créées`,
       );
 
       return {
@@ -505,7 +633,6 @@ export class ProjectsService {
             email: true,
           },
         },
-
         membres: {
           include: {
             utilisateur: {
@@ -518,7 +645,6 @@ export class ProjectsService {
             },
           },
         },
-
         taches: {
           select: {
             id: true,
@@ -527,72 +653,27 @@ export class ProjectsService {
             assigneeId: true,
           },
         },
-
         cahierDesCharges: true,
       },
-
-      orderBy: {
-        createdAt: 'desc',
-      },
+      orderBy: { createdAt: 'desc' },
     });
   }
 
-  private async genererCahierDesChargesPourProjet(
-    projetId: number,
-    titre: string,
-    description: string,
-    tx?: any,
-  ) {
-    const db = tx || this.databaseService;
-    try {
-      const contenuGenere = await this.ai.genererCahierDesCharges(
-        titre,
-        description,
-      );
-      return await db.cahierDesCharges.create({
-        data: { projetId, contenuGenere },
-      });
-    } catch (error) {
-      this.logger.error(
-        `Échec de la génération du CDC pour le projet ${projetId}`,
-        error,
-      );
-      return null;
-    }
-  }
-
-  private async genererTachesPourProjet(
-    projetId: number,
-    contenuCahierDesCharges: string,
-    tx?: any,
-  ) {
-    const db = tx || this.databaseService;
-    const tachesGenerees = await this.ai.genererTaches(contenuCahierDesCharges);
-
-    if (tachesGenerees.length === 0) {
-      this.logger.warn(`Aucune tâche identifiable pour le projet ${projetId}`);
-      return [];
-    }
-
-    await db.tache.createMany({
-      data: tachesGenerees.map((t) => ({
-        projetId,
-        titre: t.titre,
-        descriptionGeneree: t.descriptionGeneree,
-        competences: t.competences,
-        complexite: t.complexite as any,
-        statut: 'disponible',
-      })),
-    });
-
-    return db.tache.findMany({
-      where: { projetId },
-      select: { id: true, titre: true, competences: true, complexite: true },
-    });
-  }
   async retirerProject(projetId: number, userId: number) {
     const projet = await this.databaseService.projet.findUnique({
       where: { id: projetId },
+      include: {
+        createur: {
+          select: {
+            id: true,
+            nom: true,
+            prenom: true,
+            email: true,
+            githubUsername: true,
+            githubToken: true,
+          },
+        },
+      },
     });
 
     if (!projet) {
@@ -605,11 +686,14 @@ export class ProjectsService {
       );
     }
 
-    await this.databaseService.projet.delete({
-      where: { id: projetId },
-    });
+    if (projet.depotGitUrl && projet.createur.githubToken) {
+      await this.supprimerDepotGithub(projet);
+    }
 
-    this.logger.log(`✅ Projet ${projetId} supprimé par ${userId}`);
+    await this.databaseService.projet.delete({ where: { id: projetId } });
+
+    this.logger.log(`Projet ${projetId} supprimé par ${userId}`);
+
     return { message: 'Projet supprimé avec succès' };
   }
 
@@ -668,11 +752,7 @@ export class ProjectsService {
     const projet = await this.databaseService.projet.findUnique({
       where: { id: projetId },
       include: {
-        membres: {
-          select: {
-            utilisateurId: true,
-          },
-        },
+        membres: { select: { utilisateurId: true } },
       },
     });
 
@@ -683,7 +763,6 @@ export class ProjectsService {
     const estMembre = projet.membres.some(
       (membre) => membre.utilisateurId === utilisateurId,
     );
-
     const estCreateur = projet.createurId === utilisateurId;
 
     if (!estMembre && !estCreateur) {
@@ -693,13 +772,9 @@ export class ProjectsService {
     }
 
     const taches = await this.databaseService.tache.findMany({
-      where: {
-        projetId,
-      },
+      where: { projetId },
       include: { assignee: { select: { id: true, nom: true, prenom: true } } },
-      orderBy: {
-        createdAt: 'asc',
-      },
+      orderBy: { createdAt: 'asc' },
     });
 
     return {
@@ -711,9 +786,7 @@ export class ProjectsService {
 
   async listerMembresProjet(projetId: number) {
     const projet = await this.databaseService.projet.findUnique({
-      where: {
-        id: projetId,
-      },
+      where: { id: projetId },
     });
 
     if (!projet) {
@@ -721,12 +794,7 @@ export class ProjectsService {
     }
 
     return this.databaseService.membre.findMany({
-      where: {
-        projetId,
-        role: {
-          not: 'chef_projet',
-        },
-      },
+      where: { projetId, role: { not: 'chef_projet' } },
       include: {
         utilisateur: {
           select: {
@@ -738,9 +806,258 @@ export class ProjectsService {
           },
         },
       },
-      orderBy: {
-        id: 'desc',
+      orderBy: { id: 'desc' },
+    });
+  }
+
+  async chargerProjetGithub(projetId: number, utilisateurId: number) {
+    const projet = await this.trouverParId(projetId, utilisateurId);
+
+    const octokit = await this.github.obtenirOctokit(projet, utilisateurId);
+    const { owner, repo } = this.github.extraireOwnerEtRepo(
+      projet.depotGitUrl!,
+    );
+
+    const membre = await this.databaseService.membre.findUnique({
+      where: { projetId_utilisateurId: { projetId, utilisateurId } },
+    });
+
+    return this.github.chargerFichiers(
+      octokit,
+      owner,
+      repo,
+      membre?.brancheTravail ?? undefined,
+    );
+  }
+
+  /* 🔄 SYNCHRONISER */
+  async synchroniserFichiers(
+    projetId: number,
+    utilisateurId: number,
+    fichiers: { path: string; contenu: string }[],
+    brancheChoisie?: string,
+  ) {
+    if (fichiers.length === 0) {
+      return { message: 'Aucun fichier à synchroniser' };
+    }
+
+    const projet = await this.trouverParId(projetId, utilisateurId);
+
+    const octokit = await this.github.obtenirOctokit(projet, utilisateurId);
+    const { owner, repo } = this.github.extraireOwnerEtRepo(
+      projet.depotGitUrl!,
+    );
+
+    const result = await this.github.pousserFichiers(
+      octokit,
+      owner,
+      repo,
+      fichiers,
+      brancheChoisie,
+    );
+
+    /* Mémoriser la branche de travail */
+    await this.databaseService.membre.update({
+      where: { projetId_utilisateurId: { projetId, utilisateurId } },
+      data: {
+        brancheTravail: result.branche,
+        dernierCommitSha: result.commit,
       },
     });
+
+    return {
+      message: 'Synchronisation réussie',
+      branche: result.branche,
+      commit: result.commit,
+      fichiers: fichiers.length,
+    };
+  }
+
+  /* 🌿 LISTER LES BRANCHES */
+  async listerBranches(projetId: number, utilisateurId: number) {
+    const projet = await this.trouverParId(projetId, utilisateurId);
+
+    const octokit = await this.github.obtenirOctokit(projet, utilisateurId);
+    const { owner, repo } = this.github.extraireOwnerEtRepo(
+      projet.depotGitUrl!,
+    );
+
+    return { branches: await this.github.listerBranches(octokit, owner, repo) };
+  }
+
+  private genererNomDepot(titre: string): string {
+    const slug = titre
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/(^-|-$)/g, '')
+      .substring(0, 60);
+
+    return `${slug || 'projet'}`;
+  }
+
+  private async pousserFichiersInitiaux(
+    octokit: Octokit,
+    owner: string,
+    repo: string,
+    titre: string,
+    description: string,
+    contenuCdc: string | null,
+  ) {
+    const readme = [
+      `# ${titre}`,
+      '',
+      description,
+      '',
+      '---',
+      '',
+      '',
+      '## Structure',
+      '',
+      '- `docs/cahier-des-charges.md` — Cahier des charges généré par IA',
+      '- `src/` — Code source du projet',
+      '',
+      '## Démarrage',
+      '',
+      '```bash',
+      `git clone https://github.com/${owner}/${repo}.git`,
+      `cd ${repo}`,
+      '```',
+    ].join('\n');
+
+    await octokit.repos.createOrUpdateFileContents({
+      owner,
+      repo,
+      path: 'README.md',
+      message: 'docs: initialisation du projet par WorkPilot',
+      content: Buffer.from(readme).toString('base64'),
+      headers: GITHUB_API_HEADERS,
+    });
+
+    if (contenuCdc) {
+      await octokit.repos.createOrUpdateFileContents({
+        owner,
+        repo,
+        path: 'docs/cahier-des-charges.md',
+        message: 'docs: ajout du cahier des charges',
+        content: Buffer.from(contenuCdc).toString('base64'),
+        headers: GITHUB_API_HEADERS,
+      });
+    }
+  }
+
+  private async inviterSurGithub(projet: any, githubUsername: string) {
+    const tokenGithub = await this.getGithubToken(projet.createurId);
+
+    if (!projet.depotGitUrl || !tokenGithub) return;
+
+    try {
+      const octokit = new Octokit({
+        auth: tokenGithub,
+        userAgent: 'WorkPilot/1.0',
+      });
+
+      const { owner, repo } = this.extraireOwnerEtRepo(projet.depotGitUrl);
+
+      await octokit.repos.addCollaborator({
+        owner,
+        repo,
+        username: githubUsername,
+        permission: 'push',
+        headers: GITHUB_API_HEADERS,
+      });
+
+      this.logger.log(`@${githubUsername} invité sur ${owner}/${repo}`);
+    } catch (error: any) {
+      this.logger.warn(
+        `Impossible d'inviter @${githubUsername} sur GitHub : ${error.message}`,
+      );
+    }
+  }
+
+  private async retirerDeGithub(projet: any, githubUsername: string) {
+    const tokenGithub = await this.getGithubToken(projet.createurId);
+
+    if (!projet.depotGitUrl || !tokenGithub) return;
+
+    try {
+      const octokit = new Octokit({
+        auth: tokenGithub,
+        userAgent: 'WorkPilot/1.0',
+      });
+
+      const { owner, repo } = this.extraireOwnerEtRepo(projet.depotGitUrl);
+
+      await octokit.repos.removeCollaborator({
+        owner,
+        repo,
+        username: githubUsername,
+        headers: GITHUB_API_HEADERS,
+      });
+
+      this.logger.log(`@${githubUsername} retiré de ${owner}/${repo}`);
+    } catch (error: any) {
+      this.logger.warn(
+        `Impossible de retirer @${githubUsername} de GitHub : ${error.message}`,
+      );
+    }
+  }
+
+  private async supprimerDepotGithub(projet: any) {
+    const tokenGithub = await this.getGithubToken(projet.createurId);
+
+    if (!projet.depotGitUrl || !tokenGithub) return;
+
+    try {
+      const octokit = new Octokit({
+        auth: tokenGithub,
+        userAgent: 'WorkPilot/1.0',
+      });
+
+      const { owner, repo } = this.extraireOwnerEtRepo(projet.depotGitUrl);
+
+      await octokit.repos.delete({
+        owner,
+        repo,
+        headers: GITHUB_API_HEADERS,
+      });
+
+      this.logger.log(`Dépôt GitHub ${owner}/${repo} supprimé`);
+    } catch (error: any) {
+      this.logger.warn(
+        `Impossible de supprimer le dépôt GitHub : ${error.message}`,
+      );
+    }
+  }
+
+  private extraireOwnerEtRepo(url: string): { owner: string; repo: string } {
+    const match = /github\.com[/:]([^/]+)\/([^/]+?)(\.git)?$/.exec(url);
+
+    if (!match) {
+      throw new BadRequestException('URL GitHub invalide');
+    }
+
+    return { owner: match[1], repo: match[2] };
+  }
+
+  private async getGithubToken(userId: number): Promise<string | null> {
+    const user = await this.databaseService.utilisateur.findUnique({
+      where: { id: userId },
+      select: { githubToken: true },
+    });
+
+    if (!user?.githubToken) {
+      return null;
+    }
+
+    try {
+      return this.crypto.dechiffrer(user.githubToken);
+    } catch (error) {
+      this.logger.error(
+        `Token GitHub illisible pour user ${userId} : ${(error as Error).message}`,
+      );
+      return null;
+    }
   }
 }

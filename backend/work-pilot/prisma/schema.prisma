@@ -43,38 +43,59 @@ enum RoleMessageIA {
   systeme
 }
 
+enum TypeNotification {
+  invitation_projet
+  changement_role
+  retrait_projet
+  tache_assignee
+  tache_terminee
+  systeme
+}
+
+enum StatutPullRequest {
+  ouverte
+  approuvee
+  rejetee
+  fusionnee
+}
+
+
 model Utilisateur {
-  id                     Int          @id @default(autoincrement())
-  nom                    String
-  prenom                 String
-  email                  String       @unique
-  telephone              String
-  motDePasse             String
-  roleGlobal             RoleGlobal   @default(membre)
-  statut                 StatutCompte @default(en_attente_verification)
+  id            Int          @id @default(autoincrement())
+  nom           String
+  prenom        String
+  email         String       @unique
+  telephone     String?
+  motDePasse    String
+  roleGlobal    RoleGlobal   @default(membre)
+  statut        StatutCompte @default(en_attente_verification)
   codeVerificationHache  String?
   codeVerificationExpire DateTime?
-  createdAt              DateTime     @default(now())
-  updatedAt              DateTime     @updatedAt
-  projetsCrees           Projet[]     @relation("ProjetsCrees")
-  tachesAssignees        Tache[]      @relation("TachesAssignees")
-  membres                Membre[]
+  githubUsername String?   @unique
+  githubToken    String?
+  githubLieAt    DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  projetsCrees    Projet[] @relation("ProjetsCrees")
+  tachesAssignees Tache[]  @relation("TachesAssignees")
+  membres         Membre[]
+  notifications Notification[]
 
   @@map("utilisateurs")
 }
 
 model Projet {
-  id                  Int               @id @default(autoincrement())
+  id                  Int       @id @default(autoincrement())
   titre               String
-  descriptionSommaire String            @db.Text
-  depotGitUrl         String?           @unique
-  createurId          Int
-  createur            Utilisateur       @relation("ProjetsCrees", fields: [createurId], references: [id])
-  createdAt           DateTime          @default(now())
-  updatedAt           DateTime          @updatedAt
-  cahierDesCharges    CahierDesCharges?
-  taches              Tache[]
-  membres             Membre[]
+  descriptionSommaire String    @db.Text
+  depotGitUrl         String?   @unique
+  createurId Int
+  createur   Utilisateur @relation("ProjetsCrees", fields: [createurId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  cahierDesCharges CahierDesCharges?
+  taches           Tache[]
+  membres          Membre[]
 
   @@map("projets")
 }
@@ -104,19 +125,20 @@ model Tache {
   createdAt          DateTime      @default(now())
   updatedAt          DateTime      @updatedAt
   assistanceIA       AssistanceIA?
-
+  pullRequests       PullRequest[]
   @@map("taches")
 }
 
 model Membre {
   id Int @id @default(autoincrement())
-
   projetId      Int
   utilisateurId Int
-  role          RoleProjet  @default(developpeur)
-  dateAjout     DateTime    @default(now())
-  projet        Projet      @relation(fields: [projetId], references: [id], onDelete: Cascade)
-  utilisateur   Utilisateur @relation(fields: [utilisateurId], references: [id], onDelete: Cascade)
+  role          RoleProjet @default(developpeur)
+  dateAjout     DateTime   @default(now())
+  projet      Projet      @relation(fields: [projetId], references: [id], onDelete: Cascade)
+  utilisateur Utilisateur @relation(fields: [utilisateurId], references: [id], onDelete: Cascade)
+  brancheTravail   String?  
+  dernierCommitSha String?
 
   @@unique([projetId, utilisateurId])
   @@map("membres")
@@ -134,13 +156,46 @@ model AssistanceIA {
 }
 
 model MessageIA {
-  id             Int           @id @default(autoincrement())
+  id             Int          @id @default(autoincrement())
   conversationId Int
-  conversation   AssistanceIA  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  conversation   AssistanceIA @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   role           RoleMessageIA
-  contenu        String        @db.Text
-  createdAt      DateTime      @default(now())
+  contenu        String       @db.Text
+  createdAt      DateTime     @default(now())
 
   @@index([conversationId, createdAt])
   @@map("messages_ia")
+}  
+
+model Notification {
+  id        Int              @id @default(autoincrement())
+  userId    Int
+  user      Utilisateur      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      TypeNotification
+  titre     String
+  message   String           @db.Text
+  lue       Boolean          @default(false)
+  projetId  Int?
+  tacheId   Int?
+  createdAt DateTime         @default(now())
+
+  @@index([userId, lue])
+  @@index([userId, createdAt])
+  @@map("notifications")
+}
+
+
+model PullRequest {
+  id        Int               @id @default(autoincrement())
+  tacheId   Int
+  tache     Tache             @relation(fields: [tacheId], references: [id], onDelete: Cascade)
+  url       String
+  numero    Int?
+  branche   String?
+  statut    StatutPullRequest @default(ouverte)
+  creeParIA Boolean           @default(false)
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+
+  @@map("pull_requests")
 }

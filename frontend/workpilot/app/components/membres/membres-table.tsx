@@ -11,6 +11,8 @@ import {
   Users,
   Code2,
   Eye,
+  Crown,
+  LucideIcon,
 } from "lucide-react";
 import {
   ColumnDef,
@@ -49,10 +51,25 @@ interface MembresTableProps {
   projetId: number;
 }
 
-const roleLabels: Record<RoleMembre, string> = {
-  chef_projet: "Chef de projet",
-  developpeur: "Développeur",
-  relecteur: "Relecteur",
+const roleConfig: Record<
+  RoleMembre,
+  { label: string; classes: string; icon: LucideIcon }
+> = {
+  chef_projet: {
+    label: "Chef de projet",
+    classes: "border-amber-300 bg-amber-50 text-amber-700",
+    icon: Crown,
+  },
+  developpeur: {
+    label: "Développeur",
+    classes: "border-emerald-300 bg-emerald-50 text-emerald-700",
+    icon: Code2,
+  },
+  relecteur: {
+    label: "Relecteur",
+    classes: "border-sky-300 bg-sky-50 text-sky-700",
+    icon: Eye,
+  },
 };
 
 export default function MembresTable({ projetId }: MembresTableProps) {
@@ -84,7 +101,6 @@ export default function MembresTable({ projetId }: MembresTableProps) {
   const [dialogRetraitOpen, setDialogRetraitOpen] = useState(false);
   const [nouveauRole, setNouveauRole] = useState<RoleMembre | "">("");
   const [isActionLoading, setIsActionLoading] = useState(false);
-
 
   const stats = useMemo(() => {
     return {
@@ -207,14 +223,20 @@ export default function MembresTable({ projetId }: MembresTableProps) {
 
         cell: ({ row }) => {
           const role = row.original.role;
+          const config = roleConfig[role];
+          const Icon = config.icon;
 
           return (
-            <span className="rounded-full bg-muted px-3 py-1 text-xs font-medium">
-              {roleLabels[role]}
+            <span
+              className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium ${config.classes}`}
+            >
+              <Icon className="h-3 w-3" />
+              {config.label}
             </span>
           );
         },
       },
+
       {
         id: "actions",
 
@@ -360,7 +382,6 @@ export default function MembresTable({ projetId }: MembresTableProps) {
   return (
     <>
       <div className="space-y-4">
-       
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
           {statCards.map((stat) => {
             const Icon = stat.icon;

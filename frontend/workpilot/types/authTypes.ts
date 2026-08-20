@@ -6,6 +6,7 @@ export interface AuthState {
   isUpdating: boolean;
   error: string | null;
   hasHydrated: boolean;
+  isConnectingGithub: boolean; 
   login: (data: LoginFormData) => Promise<void>;
   register: (data: RegisterPayload) => Promise<void>;
   verifyCode: (data: VerifyCodeFormData) => Promise<void>;
@@ -17,7 +18,7 @@ export interface AuthState {
   clearError: () => void;
   setUser: (user: User) => void;
   setHasHydrated: (value: boolean) => void;
-  
+  connectGithub: () => Promise<void>;
 }
 
 export interface User {
@@ -30,6 +31,8 @@ export interface User {
   statut: "en_attente_verification" | "actif" | "suspendu";
   createdAt: string;
   updatedAt: string;
+  githubUsername?: string | null;
+  githubLieAt?: string | null;
 }
 
 export interface LoginFormData {

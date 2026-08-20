@@ -27,6 +27,7 @@ export const useAuthStore = create<AuthState>()(
       isLoading: false,
       isLoadingProfile: false,
       isUpdating: false,
+      isConnectingGithub: false,
 
       error: null,
 
@@ -66,7 +67,6 @@ export const useAuthStore = create<AuthState>()(
           throw error;
         }
       },
-
 
       register: async (data: RegisterPayload) => {
         set({
@@ -163,7 +163,7 @@ export const useAuthStore = create<AuthState>()(
           isLoadingProfile: true,
           error: null,
         });
-        console.log("Loading profile...");
+
         try {
           const user = await authServices.getProfile(token);
 
@@ -254,6 +254,36 @@ export const useAuthStore = create<AuthState>()(
         }
       },
 
+      connectGithub: async () => {
+        const { token } = get();
+
+        if (!token) {
+          throw new Error("Vous devez être connecté pour lier GitHub.");
+        }
+
+        set({
+          isConnectingGithub: true,
+          error: null,
+        });
+
+        try {
+
+          const { url } = await authServices.getGithubConnectUrl(token);
+
+          window.location.href = url;
+        } catch (error) {
+          set({
+            error:
+              error instanceof Error
+                ? error.message
+                : "Impossible de connecter GitHub.",
+
+            isConnectingGithub: false,
+          });
+
+          throw error;
+        }
+      },
 
       logout: () => {
         document.cookie = "token=; Path=/; Max-Age=0; SameSite=Lax";
@@ -265,6 +295,7 @@ export const useAuthStore = create<AuthState>()(
           isLoading: false,
           isLoadingProfile: false,
           isUpdating: false,
+          isConnectingGithub: false,
         });
       },
 
@@ -286,7 +317,6 @@ export const useAuthStore = create<AuthState>()(
 
       partialize: (state) => ({
         user: state.user,
-
         token: state.token,
       }),
 

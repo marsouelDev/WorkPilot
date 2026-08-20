@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
+import { CryptoService } from '../crypto/crypto.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { RoleGlobal, StatutCompte, Utilisateur, Prisma } from '@prisma/client';
@@ -20,6 +21,7 @@ export class UsersService {
   constructor(
     private readonly databaseService: DatabaseService,
     private readonly emailService: EmailService,
+    private readonly crypto: CryptoService,
   ) {}
 
   private generatePassword(length = 8): string {
@@ -59,8 +61,10 @@ export class UsersService {
     const code = this.generateVerificationCode();
     const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
     const hashedCode = await bcrypt.hash(code, SALT_ROUNDS);
+
     const expiration = new Date();
     expiration.setMinutes(expiration.getMinutes() + 10);
+
     const user = await this.databaseService.utilisateur.create({
       data: {
         nom: createUser.nom,
@@ -86,40 +90,36 @@ export class UsersService {
 
   async findAll(role?: RoleGlobal): Promise<Utilisateur[]> {
     return this.databaseService.utilisateur.findMany({
-      where: role
-        ? {
-            roleGlobal: role,
-          }
-        : undefined,
+      where: role ? { roleGlobal: role } : undefined,
     });
   }
 
   async findOne(id: number): Promise<Utilisateur | null> {
     return this.databaseService.utilisateur.findUnique({
-      where: {
-        id,
-      },
+      where: { id },
+    });
+  }
+
+  async findById(id: number): Promise<Utilisateur | null> {
+    return this.databaseService.utilisateur.findUnique({
+      where: { id },
     });
   }
 
   async findByEmail(email: string): Promise<Utilisateur | null> {
     return this.databaseService.utilisateur.findUnique({
-      where: {
-        email,
-      },
+      where: { email },
+    });
+  }
+
+  async findByGithubUsername(username: string) {
+    return this.databaseService.utilisateur.findUnique({
+      where: { githubUsername: username },
     });
   }
 
   async verifyPassword(password: string, hash: string): Promise<boolean> {
     return bcrypt.compare(password, hash);
-  }
-
-  async findById(id: number) {
-    return this.databaseService.utilisateur.findUnique({
-      where: {
-        id,
-      },
-    });
   }
 
   async getProfile(id: number) {
@@ -128,10 +128,12 @@ export class UsersService {
     if (!user) {
       return null;
     }
+
     const {
       motDePasse: _motDePasse,
       codeVerificationHache: _codeVerificationHache,
       codeVerificationExpire: _codeVerificationExpire,
+      githubToken: _githubToken,
       ...profile
     } = user;
 
@@ -140,10 +142,7 @@ export class UsersService {
 
   async updateProfile(id: number, dto: UpdateProfileDto) {
     return this.databaseService.utilisateur.update({
-      where: {
-        id,
-      },
-
+      where: { id },
       data: dto,
     });
   }
@@ -180,32 +179,69 @@ export class UsersService {
     }
 
     return this.databaseService.utilisateur.update({
-      where: {
-        id,
-      },
-
+      where: { id },
       data,
     });
   }
+
   async changeStatut(id: number, statut: StatutCompte): Promise<Utilisateur> {
     const user = await this.databaseService.utilisateur.findUnique({
       where: { id },
     });
+
     if (!user) {
       throw new NotFoundException('Utilisateur introuvable');
     }
+
     if (user.roleGlobal === RoleGlobal.admin) {
       throw new BadRequestException(
         "Impossible de modifier le statut d'un administrateur.",
       );
     }
+
     await this.emailService.envoyer(user.email, 'statut', {
       nom: user.nom,
-      statut: 'suspendu',
+      statut: statut === StatutCompte.actif ? 'actif' : 'suspendu',
     });
+
     return this.databaseService.utilisateur.update({
       where: { id },
       data: { statut },
     });
+  }
+
+  async linkGithubAccount(
+    userId: number,
+    data: { githubUsername: string; githubToken: string },
+  ) {
+    const tokenChiffre = this.crypto.chiffrer(data.githubToken);
+
+    return this.databaseService.utilisateur.update({
+      where: { id: userId },
+      data: {
+        githubUsername: data.githubUsername,
+        githubToken: tokenChiffre,
+        githubLieAt: new Date(),
+      },
+    });
+  }
+
+  async getGithubToken(userId: number): Promise<string | null> {
+    const user = await this.databaseService.utilisateur.findUnique({
+      where: { id: userId },
+      select: { githubToken: true },
+    });
+
+    if (!user?.githubToken) {
+      return null;
+    }
+
+    try {
+      return this.crypto.dechiffrer(user.githubToken);
+    } catch (error) {
+      throw new Error(
+        `Impossible de déchiffrer le token GitHub : ${(error as Error).message}`,
+      );
+    }
   }
 }

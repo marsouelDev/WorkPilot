@@ -4,9 +4,10 @@ import { ProjectsController } from './projects.controller';
 import { AiModule } from '../ai/ai.module';
 import { DatabaseModule } from '../database/database.module';
 import { EmailModule } from '../email/email.module';
+import { NotificationModule } from '../notification/notification.module';
 
 @Module({
-  imports: [AiModule, DatabaseModule, EmailModule],
+  imports: [AiModule, DatabaseModule, EmailModule, NotificationModule],
   providers: [ProjectsService],
   controllers: [ProjectsController],
 })

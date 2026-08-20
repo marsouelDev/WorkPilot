@@ -9,12 +9,6 @@ export const ProjetSchema = z.object({
       20,
       "Décrivez votre besoin en au moins 20 caractères pour que l'IA puisse l'exploiter",
     ),
-
-  depotGitUrl: z
-    .string()
-    .url("Le lien du dépôt Git doit être une URL valide")
-    .optional()
-    .or(z.literal("")),
 });
 
 export type ProjetFormData = z.infer<typeof ProjetSchema>;

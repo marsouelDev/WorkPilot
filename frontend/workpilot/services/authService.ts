@@ -155,4 +155,21 @@ export const authServices = {
 
     return result;
   },
+  
+  async getGithubConnectUrl(token: string): Promise<{ url: string }> {
+    const response = await fetch(`${API_URL}/auth/github`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.message ?? "Impossible de connecter GitHub.");
+    }
+
+    return result;
+  },
 };

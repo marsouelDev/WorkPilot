@@ -8,12 +8,14 @@ import { JwtStrategy } from './strategies/jwt.strategy';
 
 import { UsersModule } from '../users/users.module';
 import { EmailModule } from '../email/email.module';
+import { NotificationModule } from '../notification/notification.module';
 
 @Module({
   imports: [
     UsersModule,
 
     EmailModule,
+    NotificationModule,
 
     PassportModule.register({
       defaultStrategy: 'jwt',

@@ -3,7 +3,14 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { LayoutDashboard, Users, User, Folder, LogOut } from "lucide-react";
+import {
+  LayoutDashboard,
+  Users,
+  User,
+  Folder,
+  LogOut,
+  BellRing,
+} from "lucide-react";
 
 import { useAuthStore } from "@/stores/authStore";
 
@@ -20,16 +27,8 @@ import {
   SidebarSeparator,
 } from "@/components/ui/sidebar";
 
-/* ============================================================
-   COULEURS DE LA SIDEBAR
-============================================================ */
-
 const SIDEBAR_COLOR = "#6366F1";
 const SIDEBAR_DARK = "#4f46e5";
-
-/* ============================================================
-   ITEMS DU MENU
-============================================================ */
 
 const items = [
   {
@@ -57,16 +56,18 @@ const items = [
     roles: ["membre"],
   },
   {
+    title: "Notifications",
+    url: "/notifications",
+    icon: BellRing,
+    roles: ["admin", "membre"],
+  },
+  {
     title: "Profil",
     url: "/profile",
     icon: User,
     roles: ["admin", "membre"],
   },
 ];
-
-/* ============================================================
-   COMPOSANT PRINCIPAL
-============================================================ */
 
 export default function AppSidebar() {
   const pathname = usePathname();
@@ -112,10 +113,6 @@ export default function AppSidebar() {
         } as React.CSSProperties
       }
     >
-      {/* ======================================================
-          HEADER LOGO
-      ====================================================== */}
-
       <SidebarHeader className="border-b border-white/20">
         <SidebarMenu>
           <SidebarMenuItem>
@@ -141,10 +138,6 @@ export default function AppSidebar() {
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarHeader>
-
-      {/* ======================================================
-          MENU
-      ====================================================== */}
 
       <SidebarContent>
         <SidebarGroup>
@@ -178,24 +171,14 @@ export default function AppSidebar() {
         </SidebarGroup>
       </SidebarContent>
 
-      {/* ======================================================
-          FOOTER : UTILISATEUR + DÉCONNEXION
-      ====================================================== */}
-
       <SidebarFooter className="border-t border-white/20">
         <SidebarMenu>
-          {/* PROFIL UTILISATEUR */}
-
           <SidebarMenuItem>
             <div className="flex items-center gap-3 p-2 group-data-[collapsible=icon]:justify-center">
-              {/* AVATAR */}
-
               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white text-sm font-semibold text-[#6366F1]">
                 {user?.prenom?.charAt(0).toUpperCase()}
                 {user?.nom?.charAt(0).toUpperCase()}
               </div>
-
-              {/* NOM + RÔLE */}
 
               <div className="flex min-w-0 flex-1 flex-col group-data-[collapsible=icon]:hidden">
                 <p className="truncate text-sm font-semibold text-white">
@@ -210,8 +193,6 @@ export default function AppSidebar() {
           </SidebarMenuItem>
 
           <SidebarSeparator className="bg-white/20!" />
-
-          {/* BOUTON DÉCONNEXION */}
 
           <SidebarMenuItem>
             <SidebarMenuButton

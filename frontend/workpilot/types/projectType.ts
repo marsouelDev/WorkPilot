@@ -22,7 +22,6 @@ export interface ProjetResponse {
 export interface CreateProjectDto {
   titre: string;
   description: string;
-  depotGitUrl?: string;
 }
 
 export type RoleMembre = "chef_projet" | "developpeur" | "relecteur";

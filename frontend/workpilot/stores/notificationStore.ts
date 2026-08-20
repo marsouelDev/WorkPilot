@@ -1,53 +1,116 @@
+"use client";
+
 import { create } from "zustand";
+import { notificationServices } from "@/services/notificationService";
+import type { NotificationApi } from "@/types/notificationType";
+import type { NotificationState } from "@/types/notificationType";
+export type { NotificationApi };
 
-export interface NotificationItem {
-  id: number;
-  titre: string;
-  description: string;
-  date: string;
-  lu: boolean;
-}
+export const useNotificationStore = create<NotificationState>((set, get) => ({
+  notifications: [],
+  nonLues: 0,
+  isLoading: false,
+  error: null,
 
-interface NotificationState {
-  notifications: NotificationItem[];
-  markRead: (id: number) => void;
-  markAllRead: () => void;
-}
+  charger: async (token) => {
+    set({ isLoading: true, error: null });
 
-export const useNotificationStore = create<NotificationState>((set) => ({
-  notifications: [
-    {
-      id: 1,
-      titre: "Nouvelle tâche assignée",
-      description: "« Refonte de la page login » vous a été assignée.",
-      date: "il y a 5 min",
-      lu: false,
-    },
-    {
-      id: 2,
-      titre: "Commentaire sur votre tâche",
-      description: "Amaan a commenté « API authentification ».",
-      date: "il y a 1 h",
-      lu: false,
-    },
-    {
-      id: 3,
-      titre: "Projet mis à jour",
-      description: "Le projet « WorkPilot » est passé en phase de test.",
-      date: "hier",
-      lu: true,
-    },
-  ],
+    try {
+      const data = await notificationServices.lister(token);
 
-  markRead: (id) =>
+      set({
+        notifications: data.notifications,
+        nonLues: data.nonLues,
+        isLoading: false,
+      });
+    } catch (err) {
+      set({
+        error: err instanceof Error ? err.message : "Erreur inconnue",
+        isLoading: false,
+      });
+    }
+  },
+
+  marquerLue: async (token, id) => {
+    /* Mise à jour optimiste immédiate sur interface */
+
+    const etaitLue = get().notifications.find((n) => n.id === id)?.lue;
+
     set((state) => ({
       notifications: state.notifications.map((n) =>
-        n.id === id ? { ...n, lu: true } : n,
+        n.id === id ? { ...n, lue: true } : n,
       ),
-    })),
+      nonLues: etaitLue ? state.nonLues : Math.max(0, state.nonLues - 1),
+    }));
 
-  markAllRead: () =>
+    try {
+      await notificationServices.marquerLue(token, id);
+    } catch (err) {
+      set((state) => ({
+        notifications: state.notifications.map((n) =>
+          n.id === id ? { ...n, lue: etaitLue ?? false } : n,
+        ),
+        nonLues: etaitLue ? state.nonLues : state.nonLues + 1,
+        error: err instanceof Error ? err.message : "Erreur",
+      }));
+    }
+  },
+
+  toutMarquerLues: async (token) => {
+    const ancienEtat = get().notifications.map((n) => ({
+      id: n.id,
+      lue: n.lue,
+    }));
+
     set((state) => ({
-      notifications: state.notifications.map((n) => ({ ...n, lu: true })),
-    })),
+      notifications: state.notifications.map((n) => ({ ...n, lue: true })),
+      nonLues: 0,
+    }));
+
+    try {
+      await notificationServices.toutMarquerLues(token);
+    } catch (err) {
+      set((state) => ({
+        notifications: state.notifications.map((n) => ({
+          ...n,
+          lue: ancienEtat.find((a) => a.id === n.id)?.lue ?? false,
+        })),
+        nonLues: ancienEtat.filter((a) => !a.lue).length,
+        error: err instanceof Error ? err.message : "Erreur",
+      }));
+    }
+  },
+
+  supprimer: async (token, id) => {
+    const ancienne = get().notifications.find((n) => n.id === id);
+
+    set((state) => ({
+      notifications: state.notifications.filter((n) => n.id !== id),
+      nonLues:
+        ancienne && !ancienne.lue
+          ? Math.max(0, state.nonLues - 1)
+          : state.nonLues,
+    }));
+
+    try {
+      await notificationServices.supprimer(token, id);
+    } catch (err) {
+      if (ancienne) {
+        set((state) => ({
+          notifications: [...state.notifications, ancienne],
+          nonLues: !ancienne.lue ? state.nonLues + 1 : state.nonLues,
+          error: err instanceof Error ? err.message : "Erreur",
+        }));
+      }
+    }
+  },
+
+  ajouterEnDirect: (notification) => {
+    set((state) => ({
+      notifications: [notification, ...state.notifications].slice(0, 50),
+      nonLues: notification.lue ? state.nonLues : state.nonLues + 1,
+    }));
+  },
+
+  clearError: () => set({ error: null }),
 }));

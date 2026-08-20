@@ -21,10 +21,24 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useAuthStore } from "@/stores/authStore";
 import { useNotificationStore } from "@/stores/notificationStore";
-
+import { useNotificationSocket } from "@/hooks/useNotificationSocket";
 
 interface NavProps {
   children?: React.ReactNode;
+}
+
+function tempsRelatif(date: string): string {
+  const diff = Date.now() - new Date(date).getTime();
+  const minutes = Math.floor(diff / 60000);
+
+  if (minutes < 1) return "à l'instant";
+  if (minutes < 60) return `il y a ${minutes} min`;
+
+  const heures = Math.floor(minutes / 60);
+  if (heures < 24) return `il y a ${heures} h`;
+
+  const jours = Math.floor(heures / 24);
+  return `il y a ${jours} j`;
 }
 
 export default function Nav({ children }: NavProps) {
@@ -32,11 +46,19 @@ export default function Nav({ children }: NavProps) {
   const pathname = usePathname();
 
   const { user, token, hasHydrated, isLoading, logout } = useAuthStore();
-  const { notifications, markRead, markAllRead } = useNotificationStore();
-  const unreadCount = notifications.filter((n) => !n.lu).length;
+
+  const { notifications, nonLues, charger, marquerLue, toutMarquerLues } =
+    useNotificationStore();
+
+  useNotificationSocket();
+
+  useEffect(() => {
+    if (token) charger(token);
+  }, [token, charger]);
 
   const [notifOpen, setNotifOpen] = useState(false);
   const closeTimer = useRef<number | null>(null);
+
   const openNotifications = () => {
     if (closeTimer.current) {
       window.clearTimeout(closeTimer.current);
@@ -79,7 +101,18 @@ export default function Nav({ children }: NavProps) {
     router.push("/login");
   };
 
- 
+  const handleClickNotification = (id: number, projetId: number | null) => {
+    if (token) marquerLue(token, id);
+
+    setNotifOpen(false);
+
+    if (projetId) {
+      router.push(`/projects/${projetId}/cahier-des-charges`);
+    } else {
+      router.push("/notifications");
+    }
+  };
+
   const getSegmentLabel = (segment: string) => {
     const labels: Record<string, string> = {
       dashboard: "Dashboard",
@@ -133,13 +166,8 @@ export default function Nav({ children }: NavProps) {
     return null;
   }
 
-  /* ==========================================================
-     INTERFACE
-  ========================================================== */
-
   return (
     <header className="sticky top-0 z-40 flex h-16 items-center justify-between border-b bg-background/80 px-4 backdrop-blur-md">
-
       <div className="flex min-w-0 items-center gap-2">
         {children}
 
@@ -170,12 +198,9 @@ export default function Nav({ children }: NavProps) {
       </div>
 
       <div className="flex items-center gap-3">
-        {/*  NOTIFICATIONS au SURVOL */}
-
         <DropdownMenu
           open={notifOpen}
           onOpenChange={(next) => {
-            /* On accepte uniquement la fermeture (escape, clic extérieur) */
             if (!next) {
               setNotifOpen(false);
             }
@@ -199,9 +224,9 @@ export default function Nav({ children }: NavProps) {
           >
             <Bell className="h-4 w-4" />
 
-            {unreadCount > 0 && (
+            {nonLues > 0 && (
               <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
-                {unreadCount}
+                {nonLues > 9 ? "9+" : nonLues}
               </span>
             )}
           </DropdownMenuTrigger>
@@ -215,12 +240,12 @@ export default function Nav({ children }: NavProps) {
             <div className="flex items-center justify-between px-3 py-2">
               <p className="text-sm font-semibold">Notifications</p>
 
-              {unreadCount > 0 && (
+              {nonLues > 0 && (
                 <Button
                   variant="ghost"
                   size="sm"
                   className="h-7 gap-1.5 text-xs text-muted-foreground"
-                  onClick={markAllRead}
+                  onClick={() => token && toutMarquerLues(token)}
                 >
                   <CheckCheck className="h-3.5 w-3.5" />
                   Tout marquer lu
@@ -240,22 +265,27 @@ export default function Nav({ children }: NavProps) {
               </div>
             ) : (
               <div className="max-h-80 overflow-y-auto">
-                {notifications.slice(0, 3).map((notification) => (
+                {notifications.slice(0, 4).map((notification) => (
                   <div
                     key={notification.id}
-                    onClick={() => markRead(notification.id)}
+                    onClick={() =>
+                      handleClickNotification(
+                        notification.id,
+                        notification.projetId,
+                      )
+                    }
                     className="flex cursor-pointer items-start gap-3 px-3 py-3 transition hover:bg-muted/60"
                   >
                     <span
                       className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${
-                        notification.lu ? "bg-transparent" : "bg-primary"
+                        notification.lue ? "bg-transparent" : "bg-[#6366F1]"
                       }`}
                     />
 
                     <div className="min-w-0 flex-1">
                       <p
                         className={`truncate text-sm ${
-                          notification.lu
+                          notification.lue
                             ? "font-normal text-muted-foreground"
                             : "font-semibold text-foreground"
                         }`}
@@ -264,11 +294,11 @@ export default function Nav({ children }: NavProps) {
                       </p>
 
                       <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
-                        {notification.description}
+                        {notification.message}
                       </p>
 
                       <p className="mt-1 text-[10px] text-muted-foreground/70">
-                        {notification.date}
+                        {tempsRelatif(notification.createdAt)}
                       </p>
                     </div>
                   </div>

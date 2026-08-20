@@ -11,6 +11,7 @@ import { EmailService } from '../email/email.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
+import { NotificationService } from '../notification/notification.service';
 
 const SALT = 10;
 
@@ -20,6 +21,7 @@ export class AuthService {
     private readonly usersService: UsersService,
     private readonly emailService: EmailService,
     private readonly jwtService: JwtService,
+    private readonly notifications: NotificationService,
   ) {}
 
   async register(registerDto: RegisterDto) {
@@ -47,7 +49,7 @@ export class AuthService {
 
     return {
       message:
-        'Compte créé avec succès. Vérifiez votre adresse email enfin de releve le code de verification.',
+        'Compte créé avec succès. Vérifiez votre adresse email afin de relever le code de vérification.',
     };
   }
 
@@ -83,6 +85,13 @@ export class AuthService {
 
     await this.emailService.envoyer(email, 'bienvenue');
 
+    await this.notifications.creer(user.id, {
+      type: 'systeme',
+      titre: 'Bienvenue sur WorkPilot 🎉',
+      message:
+        'Votre compte est vérifié. Veuillez connecter votre compte GitHub pour profiter de toutes les fonctionnalités.',
+    });
+
     return this.genererSession({
       ...user,
       statut: StatutCompte.actif,
@@ -108,7 +117,7 @@ export class AuthService {
     }
 
     if (user.statut !== StatutCompte.actif) {
-      throw new BadRequestException('Votre compte n’est pas encore vérifié.');
+      throw new BadRequestException('Votre compte n est pas encore vérifié.');
     }
 
     return this.genererSession(user);
@@ -134,9 +143,7 @@ export class AuthService {
 
     await this.emailService.envoyer(email, 'code_verification', code);
 
-    return {
-      message: 'Un nouveau code a été envoyé.',
-    };
+    return { message: 'Un nouveau code a été envoyé.' };
   }
 
   async me(userId: number) {
@@ -166,13 +173,50 @@ export class AuthService {
     if (!passwordCorrect) {
       throw new BadRequestException("L'ancien mot de passe est incorrect.");
     }
+
     await this.usersService.update(id, {
       motDePasse: nouveauMotDePasse,
     });
 
-    return {
-      message: 'Mot de passe modifié avec succès.',
-    };
+    return { message: 'Mot de passe modifié avec succès.' };
+  }
+
+  async linkGithub(
+    appToken: string,
+    data: { githubUsername: string; githubToken: string },
+  ) {
+    let payload: any;
+
+    try {
+      payload = this.jwtService.verify(appToken);
+    } catch {
+      throw new UnauthorizedException('Session expirée. Reconnectez-vous.');
+    }
+
+    const userId = payload.id ?? payload.sub;
+
+    const existing = await this.usersService.findByGithubUsername(
+      data.githubUsername,
+    );
+
+    if (existing && existing.id !== userId) {
+      throw new BadRequestException(
+        `Le compte GitHub @${data.githubUsername} est déjà lié à un autre utilisateur.`,
+      );
+    }
+
+    await this.usersService.linkGithubAccount(userId, {
+      githubUsername: data.githubUsername,
+      githubToken: data.githubToken,
+    });
+
+    await this.notifications.creer(userId, {
+      type: 'systeme',
+      titre: 'GitHub connecté ✅',
+      message: `Votre compte GitHub @${data.githubUsername} est maintenant lié à WorkPilot.`,
+    });
+
+    return true;
   }
 
   private genererSession(user: Utilisateur) {
@@ -192,6 +236,8 @@ export class AuthService {
         telephone: user.telephone,
         role: user.roleGlobal,
         statut: user.statut,
+        githubUsername: user.githubUsername,
+        githubLieAt: user.githubLieAt,
       },
     };
   }
