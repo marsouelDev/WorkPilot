@@ -78,11 +78,9 @@ export class ProjectsService {
       });
 
       depotGitUrl = repo.html_url;
-
       this.logger.log(`Dépôt créé : ${depotGitUrl}`);
     } catch (error: any) {
       this.logger.error('Erreur création dépôt GitHub', error);
-
       throw new BadRequestException(
         `Impossible de créer le dépôt "${nomDepot}" sur votre compte GitHub. Vérifiez que ce nom n'existe pas déjà.`,
       );
@@ -103,9 +101,7 @@ export class ProjectsService {
 
       if (contenuCdc) {
         this.logger.log('Découpage en tâches...');
-
         tachesGenerees = await this.ai.genererTaches(contenuCdc);
-
         this.logger.log(`${tachesGenerees.length} tâches générées`);
       }
     } catch (error) {
@@ -172,7 +168,6 @@ export class ProjectsService {
         dto.description,
         contenuCdc,
       );
-
       this.logger.log(`Fichiers initiaux poussés sur ${nomDepot}`);
     } catch (error: any) {
       this.logger.warn(
@@ -240,29 +235,14 @@ export class ProjectsService {
         ],
       },
       include: {
-        _count: {
-          select: {
-            taches: true,
-            membres: true,
-          },
-        },
+        _count: { select: { taches: true, membres: true } },
         createur: {
-          select: {
-            id: true,
-            nom: true,
-            prenom: true,
-            email: true,
-          },
+          select: { id: true, nom: true, prenom: true, email: true },
         },
         membres: {
           include: {
             utilisateur: {
-              select: {
-                id: true,
-                nom: true,
-                prenom: true,
-                email: true,
-              },
+              select: { id: true, nom: true, prenom: true, email: true },
             },
           },
         },
@@ -271,6 +251,82 @@ export class ProjectsService {
       },
       orderBy: { updatedAt: 'desc' },
     });
+  }
+
+  async listeDesProjetSysteme() {
+    return this.databaseService.projet.findMany({
+      include: {
+        createur: {
+          select: { id: true, nom: true, prenom: true, email: true },
+        },
+        membres: {
+          include: {
+            utilisateur: {
+              select: { id: true, nom: true, prenom: true, email: true },
+            },
+          },
+        },
+        taches: {
+          select: {
+            id: true,
+            titre: true,
+            statut: true,
+            assigneeId: true,
+          },
+        },
+        cahierDesCharges: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async obtenirCahierDesCharges(projetId: number, utilisateurId: number) {
+    const projet = await this.databaseService.projet.findUnique({
+      where: { id: projetId },
+      include: {
+        cahierDesCharges: true,
+        createur: {
+          select: { id: true, nom: true, prenom: true, email: true },
+        },
+        membres: {
+          include: {
+            utilisateur: {
+              select: { id: true, nom: true, prenom: true, email: true },
+            },
+          },
+        },
+      },
+    });
+
+    if (!projet) throw new NotFoundException('Projet introuvable');
+
+    const estMembre = projet.membres.some(
+      (m) => m.utilisateurId === utilisateurId,
+    );
+    const estCreateur = projet.createurId === utilisateurId;
+
+    if (!estMembre && !estCreateur) {
+      throw new ForbiddenException("Vous n'avez pas accès à ce projet");
+    }
+
+    if (!projet.cahierDesCharges) {
+      throw new NotFoundException(
+        'Aucun cahier des charges généré pour ce projet',
+      );
+    }
+
+    return {
+      projet: {
+        id: projet.id,
+        titre: projet.titre,
+        descriptionSommaire: projet.descriptionSommaire,
+      },
+      cahierDesCharges: {
+        id: projet.cahierDesCharges.id,
+        contenuGenere: projet.cahierDesCharges.contenuGenere,
+        dateGeneration: projet.cahierDesCharges.dateGeneration,
+      },
+    };
   }
 
   async inviterMembre(
@@ -294,17 +350,13 @@ export class ProjectsService {
       },
     });
 
-    if (!projet) {
-      throw new NotFoundException('Projet introuvable');
-    }
+    if (!projet) throw new NotFoundException('Projet introuvable');
 
     const utilisateur = await this.databaseService.utilisateur.findUnique({
       where: { email: dto.email },
     });
 
-    if (!utilisateur) {
-      throw new NotFoundException('Utilisateur introuvable');
-    }
+    if (!utilisateur) throw new NotFoundException('Utilisateur introuvable');
 
     const inviteur = await this.databaseService.utilisateur.findUnique({
       where: { id: inviteurId },
@@ -339,6 +391,7 @@ export class ProjectsService {
           ? `${inviteur.prenom} ${inviteur.nom}`
           : 'Un membre',
       });
+
       await this.notifications.creer(utilisateur.id, {
         type: 'invitation_projet',
         titre: 'Invitation à un projet',
@@ -368,16 +421,11 @@ export class ProjectsService {
   }
 
   async rechercherUtilisateursParEmail(email: string) {
-    if (!email || email.trim().length === 0) {
-      return [];
-    }
+    if (!email || email.trim().length === 0) return [];
 
-    const utilisateurs = await this.databaseService.utilisateur.findMany({
+    return this.databaseService.utilisateur.findMany({
       where: {
-        email: {
-          contains: email.trim(),
-          mode: 'insensitive',
-        },
+        email: { contains: email.trim(), mode: 'insensitive' },
       },
       select: {
         id: true,
@@ -389,8 +437,6 @@ export class ProjectsService {
       orderBy: { email: 'asc' },
       take: 10,
     });
-
-    return utilisateurs;
   }
 
   async changeDeRole(
@@ -400,15 +446,10 @@ export class ProjectsService {
   ) {
     const membre = await this.databaseService.membre.findUnique({
       where: { id: membreId },
-      include: {
-        projet: true,
-        utilisateur: true,
-      },
+      include: { projet: true, utilisateur: true },
     });
 
-    if (!membre) {
-      throw new NotFoundException('Membre introuvable');
-    }
+    if (!membre) throw new NotFoundException('Membre introuvable');
 
     if (membre.projetId !== projetId) {
       throw new ForbiddenException("Ce membre n'appartient pas à ce projet");
@@ -447,6 +488,7 @@ export class ProjectsService {
         ancienRole,
       },
     );
+
     await this.notifications.creer(membre.utilisateurId, {
       type: 'changement_role',
       titre: 'Changement de rôle',
@@ -478,9 +520,7 @@ export class ProjectsService {
       },
     });
 
-    if (!projet) {
-      throw new NotFoundException('Projet introuvable');
-    }
+    if (!projet) throw new NotFoundException('Projet introuvable');
 
     if (projet.createurId === utilisateurId) {
       throw new ForbiddenException(
@@ -506,6 +546,7 @@ export class ProjectsService {
         projetTitre: projet.titre,
         projetId: projet.id,
       });
+
       await this.notifications.creer(utilisateurId, {
         type: 'retrait_projet',
         titre: 'Retrait d’un projet',
@@ -525,20 +566,71 @@ export class ProjectsService {
     return { message: 'Membre retiré avec succès' };
   }
 
+  async listerMembresProjet(projetId: number) {
+    const projet = await this.databaseService.projet.findUnique({
+      where: { id: projetId },
+    });
+
+    if (!projet) throw new NotFoundException('Projet introuvable');
+
+    return this.databaseService.membre.findMany({
+      where: { projetId, role: { not: 'chef_projet' } },
+      include: {
+        utilisateur: {
+          select: {
+            id: true,
+            nom: true,
+            prenom: true,
+            email: true,
+            telephone: true,
+          },
+        },
+      },
+      orderBy: { id: 'desc' },
+    });
+  }
+
+  async listerTachesDuProjet(projetId: number, utilisateurId: number) {
+    const projet = await this.databaseService.projet.findUnique({
+      where: { id: projetId },
+      include: { membres: { select: { utilisateurId: true } } },
+    });
+
+    if (!projet) throw new NotFoundException('Projet introuvable');
+
+    const estMembre = projet.membres.some(
+      (membre) => membre.utilisateurId === utilisateurId,
+    );
+    const estCreateur = projet.createurId === utilisateurId;
+
+    if (!estMembre && !estCreateur) {
+      throw new ForbiddenException(
+        "Vous n'avez pas accès aux tâches de ce projet",
+      );
+    }
+
+    const taches = await this.databaseService.tache.findMany({
+      where: { projetId },
+      include: { assignee: { select: { id: true, nom: true, prenom: true } } },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    return {
+      projetId,
+      nombreTaches: taches.length,
+      taches,
+    };
+  }
+
   async regenererCahierDesCharges(projetId: number, utilisateurId: number) {
     const projet = await this.databaseService.projet.findUnique({
       where: { id: projetId },
       include: {
-        membres: {
-          where: { utilisateurId },
-          select: { role: true },
-        },
+        membres: { where: { utilisateurId }, select: { role: true } },
       },
     });
 
-    if (!projet) {
-      throw new NotFoundException('Projet introuvable');
-    }
+    if (!projet) throw new NotFoundException('Projet introuvable');
 
     const estMembre = projet.membres.length > 0;
     const estCreateur = projet.createurId === utilisateurId;
@@ -622,43 +714,6 @@ export class ProjectsService {
     });
   }
 
-  async listeDesProjetSysteme() {
-    return this.databaseService.projet.findMany({
-      include: {
-        createur: {
-          select: {
-            id: true,
-            nom: true,
-            prenom: true,
-            email: true,
-          },
-        },
-        membres: {
-          include: {
-            utilisateur: {
-              select: {
-                id: true,
-                nom: true,
-                prenom: true,
-                email: true,
-              },
-            },
-          },
-        },
-        taches: {
-          select: {
-            id: true,
-            titre: true,
-            statut: true,
-            assigneeId: true,
-          },
-        },
-        cahierDesCharges: true,
-      },
-      orderBy: { createdAt: 'desc' },
-    });
-  }
-
   async retirerProject(projetId: number, userId: number) {
     const projet = await this.databaseService.projet.findUnique({
       where: { id: projetId },
@@ -676,9 +731,7 @@ export class ProjectsService {
       },
     });
 
-    if (!projet) {
-      throw new NotFoundException('Projet introuvable');
-    }
+    if (!projet) throw new NotFoundException('Projet introuvable');
 
     if (projet.createurId !== userId) {
       throw new ForbiddenException(
@@ -697,140 +750,42 @@ export class ProjectsService {
     return { message: 'Projet supprimé avec succès' };
   }
 
-  async obtenirCahierDesCharges(projetId: number, utilisateurId: number) {
-    const projet = await this.databaseService.projet.findUnique({
-      where: { id: projetId },
-      include: {
-        cahierDesCharges: true,
-        createur: {
-          select: { id: true, nom: true, prenom: true, email: true },
-        },
-        membres: {
-          include: {
-            utilisateur: {
-              select: { id: true, nom: true, prenom: true, email: true },
-            },
-          },
-        },
-      },
-    });
+  async chargerProjetGithub(
+    projetId: number,
+    utilisateurId: number,
+    brancheChoisie?: string,
+  ) {
+    this.logger.log(`Chargement projet ${projetId} pour user ${utilisateurId}`);
 
-    if (!projet) {
-      throw new NotFoundException('Projet introuvable');
-    }
-
-    const estMembre = projet.membres.some(
-      (m) => m.utilisateurId === utilisateurId,
-    );
-    const estCreateur = projet.createurId === utilisateurId;
-
-    if (!estMembre && !estCreateur) {
-      throw new ForbiddenException("Vous n'avez pas accès à ce projet");
-    }
-
-    if (!projet.cahierDesCharges) {
-      throw new NotFoundException(
-        'Aucun cahier des charges généré pour ce projet',
-      );
-    }
-
-    return {
-      projet: {
-        id: projet.id,
-        titre: projet.titre,
-        descriptionSommaire: projet.descriptionSommaire,
-      },
-      cahierDesCharges: {
-        id: projet.cahierDesCharges.id,
-        contenuGenere: projet.cahierDesCharges.contenuGenere,
-        dateGeneration: projet.cahierDesCharges.dateGeneration,
-      },
-    };
-  }
-
-  async listerTachesDuProjet(projetId: number, utilisateurId: number) {
-    const projet = await this.databaseService.projet.findUnique({
-      where: { id: projetId },
-      include: {
-        membres: { select: { utilisateurId: true } },
-      },
-    });
-
-    if (!projet) {
-      throw new NotFoundException('Projet introuvable');
-    }
-
-    const estMembre = projet.membres.some(
-      (membre) => membre.utilisateurId === utilisateurId,
-    );
-    const estCreateur = projet.createurId === utilisateurId;
-
-    if (!estMembre && !estCreateur) {
-      throw new ForbiddenException(
-        "Vous n'avez pas accès aux tâches de ce projet",
-      );
-    }
-
-    const taches = await this.databaseService.tache.findMany({
-      where: { projetId },
-      include: { assignee: { select: { id: true, nom: true, prenom: true } } },
-      orderBy: { createdAt: 'asc' },
-    });
-
-    return {
-      projetId,
-      nombreTaches: taches.length,
-      taches,
-    };
-  }
-
-  async listerMembresProjet(projetId: number) {
-    const projet = await this.databaseService.projet.findUnique({
-      where: { id: projetId },
-    });
-
-    if (!projet) {
-      throw new NotFoundException('Projet introuvable');
-    }
-
-    return this.databaseService.membre.findMany({
-      where: { projetId, role: { not: 'chef_projet' } },
-      include: {
-        utilisateur: {
-          select: {
-            id: true,
-            nom: true,
-            prenom: true,
-            email: true,
-            telephone: true,
-          },
-        },
-      },
-      orderBy: { id: 'desc' },
-    });
-  }
-
-  async chargerProjetGithub(projetId: number, utilisateurId: number) {
     const projet = await this.trouverParId(projetId, utilisateurId);
 
-    const octokit = await this.github.obtenirOctokit(projet, utilisateurId);
-    const { owner, repo } = this.github.extraireOwnerEtRepo(
-      projet.depotGitUrl!,
+    this.logger.log(
+      `Accès OK. depotGitUrl: ${projet.depotGitUrl}, createurId: ${projet.createurId}`,
     );
+
+    if (!projet.depotGitUrl) {
+      throw new BadRequestException("Ce projet n'a pas de dépôt GitHub");
+    }
+
+    const octokit = await this.github.obtenirOctokit(projet, utilisateurId);
+    const { owner, repo } = this.github.extraireOwnerEtRepo(projet.depotGitUrl);
 
     const membre = await this.databaseService.membre.findUnique({
       where: { projetId_utilisateurId: { projetId, utilisateurId } },
     });
 
+    this.logger.log(
+      `Branche travail: ${membre?.brancheTravail ?? 'aucune (défaut)'}`,
+    );
+
     return this.github.chargerFichiers(
       octokit,
       owner,
       repo,
-      membre?.brancheTravail ?? undefined,
+      brancheChoisie ?? membre?.brancheTravail ?? undefined,
     );
   }
 
-  /* 🔄 SYNCHRONISER */
   async synchroniserFichiers(
     projetId: number,
     utilisateurId: number,
@@ -856,7 +811,6 @@ export class ProjectsService {
       brancheChoisie,
     );
 
-    /* Mémoriser la branche de travail */
     await this.databaseService.membre.update({
       where: { projetId_utilisateurId: { projetId, utilisateurId } },
       data: {
@@ -873,7 +827,6 @@ export class ProjectsService {
     };
   }
 
-  /* 🌿 LISTER LES BRANCHES */
   async listerBranches(projetId: number, utilisateurId: number) {
     const projet = await this.trouverParId(projetId, utilisateurId);
 
@@ -1034,9 +987,7 @@ export class ProjectsService {
   private extraireOwnerEtRepo(url: string): { owner: string; repo: string } {
     const match = /github\.com[/:]([^/]+)\/([^/]+?)(\.git)?$/.exec(url);
 
-    if (!match) {
-      throw new BadRequestException('URL GitHub invalide');
-    }
+    if (!match) throw new BadRequestException('URL GitHub invalide');
 
     return { owner: match[1], repo: match[2] };
   }
@@ -1047,9 +998,7 @@ export class ProjectsService {
       select: { githubToken: true },
     });
 
-    if (!user?.githubToken) {
-      return null;
-    }
+    if (!user?.githubToken) return null;
 
     try {
       return this.crypto.dechiffrer(user.githubToken);
@@ -1059,5 +1008,34 @@ export class ProjectsService {
       );
       return null;
     }
+  }
+  async listerBranchesDetaillees(projetId: number, userId: number) {
+    const projet = await this.databaseService.projet.findUnique({
+      where: { id: projetId },
+      include: {
+        membres: { select: { utilisateurId: true } },
+      },
+    });
+
+    if (!projet) {
+      throw new NotFoundException('Projet introuvable');
+    }
+
+    const estMembre =
+      projet.membres.some((m) => m.utilisateurId === userId) ||
+      projet.createurId === userId;
+
+    if (!estMembre) {
+      throw new ForbiddenException("Vous n'avez pas accès à ce projet");
+    }
+
+    if (!projet.depotGitUrl) {
+      throw new BadRequestException("Ce projet n'a pas de dépôt GitHub");
+    }
+
+    const octokit = await this.github.obtenirOctokit(projet, userId);
+    const { owner, repo } = this.github.extraireOwnerEtRepo(projet.depotGitUrl);
+
+    return this.github.listerBranchesDetaillees(octokit, owner, repo);
   }
 }

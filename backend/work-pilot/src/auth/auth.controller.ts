@@ -4,6 +4,7 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Logger,
   Patch,
   Post,
   Query,
@@ -27,6 +28,8 @@ import * as requestWithUserInterface from './interfaces/request-with-user.interf
 @ApiTags('Authentification')
 @Controller('auth')
 export class AuthController {
+  private readonly logger = new Logger(AuthController.name);
+
   constructor(
     private readonly authService: AuthService,
     private readonly config: ConfigService,
@@ -100,17 +103,23 @@ export class AuthController {
   @Get('github')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT')
-  @ApiOperation({ summary: 'Rediriger vers GitHub pour OAuth' })
+  @ApiOperation({ summary: "Générer l'URL OAuth GitHub" })
   githubLogin(@Request() req: requestWithUserInterface.RequestWithUser) {
+    const clientId = this.config.get<string>('GITHUB_CLIENT_ID');
+    const callback = this.config.get<string>('GITHUB_CALLBACK_URL');
+
+    if (!clientId || !callback) {
+      throw new Error(
+        'Configuration GitHub manquante (GITHUB_CLIENT_ID ou GITHUB_CALLBACK_URL)',
+      );
+    }
+
     const stateToken = this.authService['jwtService'].sign(
       { id: req.user.id },
       { expiresIn: '10m' },
     );
 
-    const clientId = this.config.get('GITHUB_CLIENT_ID');
-    const callback = this.config.get('GITHUB_CALLBACK_URL');
-
-    const scope = 'read:user repo';
+    const scope = 'repo user:email';
 
     const url =
       `https://github.com/login/oauth/authorize` +
@@ -129,9 +138,31 @@ export class AuthController {
     @Query('state') state: string,
     @Res() res: Response,
   ) {
-    const frontend = this.config.get('FRONTEND_URL');
+    const frontend =
+      this.config.get<string>('FRONTEND_URL') ?? 'http://localhost:3000';
 
     try {
+      let userId: number | undefined;
+
+      try {
+        const payload = this.authService['jwtService'].verify(state);
+        userId = payload.id ?? payload.sub;
+      } catch {
+        this.logger.warn('State JWT invalide ou expiré');
+        return res.redirect(`${frontend}/profile?github=erreur_state`);
+      }
+
+      if (!userId) {
+        this.logger.warn('userId introuvable dans le state');
+        return res.redirect(`${frontend}/profile?github=erreur_state`);
+      }
+
+      this.logger.log(`Callback GitHub OAuth pour user ${userId}`);
+
+      const clientId = this.config.get<string>('GITHUB_CLIENT_ID') ?? '';
+      const clientSecret =
+        this.config.get<string>('GITHUB_CLIENT_SECRET') ?? '';
+
       const tokenRes = await fetch(
         'https://github.com/login/oauth/access_token',
         {
@@ -141,31 +172,42 @@ export class AuthController {
             Accept: 'application/json',
           },
           body: JSON.stringify({
-            client_id: this.config.get('GITHUB_CLIENT_ID'),
-            client_secret: this.config.get('GITHUB_CLIENT_SECRET'),
+            client_id: clientId,
+            client_secret: clientSecret,
             code,
           }),
         },
       );
 
       const tokenData = await tokenRes.json();
-      const accessToken = tokenData.access_token;
+      const accessToken: string | undefined = tokenData.access_token;
+      const scope: string | undefined = tokenData.scope;
 
       if (!accessToken) {
-        return res.redirect(`${frontend}/profile?github=erreur`);
+        this.logger.error('Pas de access_token GitHub', tokenData);
+        return res.redirect(`${frontend}/profile?github=erreur_token`);
+      }
+
+      if (!scope || !scope.includes('repo')) {
+        this.logger.warn(
+          `Scope GitHub insuffisant : "${scope}". "repo" est requis pour les dépôts privés.`,
+        );
+      } else {
+        this.logger.log(`Scopes GitHub : ${scope}`);
       }
 
       const ghRes = await fetch('https://api.github.com/user', {
         headers: {
           Authorization: `Bearer ${accessToken}`,
-          'User-Agent': 'WorkPilot',
+          'User-Agent': 'WorkPilot/1.0',
         },
       });
 
       const ghUser = await ghRes.json();
 
       if (!ghUser?.login) {
-        return res.redirect(`${frontend}/profile?github=erreur`);
+        this.logger.error('Pas de login GitHub', ghUser);
+        return res.redirect(`${frontend}/profile?github=erreur_user`);
       }
 
       await this.authService.linkGithub(state, {
@@ -173,9 +215,11 @@ export class AuthController {
         githubToken: accessToken,
       });
 
+      this.logger.log(`GitHub lié pour user ${userId} → @${ghUser.login}`);
+
       return res.redirect(`${frontend}/profile?github=ok`);
     } catch (err) {
-      console.error('Erreur callback GitHub :', err);
+      this.logger.error('Erreur callback GitHub', err);
       return res.redirect(`${frontend}/profile?github=erreur`);
     }
   }

@@ -15,11 +15,10 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
         secret: config.get<string>('JWT_SECRET'),
       }),
     }),
-
     DatabaseModule,
   ],
   providers: [NotificationService, NotificationsGateway],
   controllers: [NotificationController],
-  exports: [NotificationService],
+  exports: [NotificationService, NotificationsGateway],
 })
 export class NotificationModule {}

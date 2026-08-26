@@ -87,7 +87,7 @@ export class AuthService {
 
     await this.notifications.creer(user.id, {
       type: 'systeme',
-      titre: 'Bienvenue sur WorkPilot 🎉',
+      titre: 'Bienvenue sur WorkPilot',
       message:
         'Votre compte est vérifié. Veuillez connecter votre compte GitHub pour profiter de toutes les fonctionnalités.',
     });
@@ -117,7 +117,7 @@ export class AuthService {
     }
 
     if (user.statut !== StatutCompte.actif) {
-      throw new BadRequestException('Votre compte n est pas encore vérifié.');
+      throw new BadRequestException("Votre compte n'est pas encore vérifié.");
     }
 
     return this.genererSession(user);
@@ -212,7 +212,7 @@ export class AuthService {
 
     await this.notifications.creer(userId, {
       type: 'systeme',
-      titre: 'GitHub connecté ✅',
+      titre: 'GitHub connecté',
       message: `Votre compte GitHub @${data.githubUsername} est maintenant lié à WorkPilot.`,
     });
 

@@ -120,6 +120,7 @@ export default function Nav({ children }: NavProps) {
       users: "Utilisateurs",
       profile: "Profil",
       tasks: "Tâches",
+      taches: "Tâches",
       notifications: "Notifications",
       "cahier-des-charges": "Cahier des charges",
       "create-project": "Créer un projet",
@@ -127,7 +128,7 @@ export default function Nav({ children }: NavProps) {
     };
 
     return (
-      labels[segment] ??
+      labels[segment.toLowerCase()] ??
       segment
         .replace(/-/g, " ")
         .replace(/\b\w/g, (letter) => letter.toUpperCase())
@@ -136,18 +137,18 @@ export default function Nav({ children }: NavProps) {
 
   const segments = pathname.split("/").filter(Boolean);
 
-  const visibleSegments = segments.filter((segment, index) => {
-    if (segment === "projects" || segment === "Users") {
-      return false;
-    }
+  /* ✅ Segments techniques masqués (insensible à la casse) */
+  const HIDDEN_SEGMENTS = new Set(["projects", "users", "ia"]);
 
-    if (segments[index - 1] === "projects" && !Number.isNaN(Number(segment))) {
-      return false;
-    }
+  /* ✅ Masque : projects, Users, ia + TOUS les IDs numériques (12, 29...) */
+  const visibleSegments = segments.filter((segment) => {
+    const lower = segment.toLowerCase();
 
-    if (segments[index - 1] === "Users" && !Number.isNaN(Number(segment))) {
-      return false;
-    }
+    /* Segments techniques */
+    if (HIDDEN_SEGMENTS.has(lower)) return false;
+
+    /* IDs numériques (projetId, taskId...) */
+    if (/^\d+$/.test(segment)) return false;
 
     return true;
   });

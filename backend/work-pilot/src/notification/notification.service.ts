@@ -25,20 +25,46 @@ export class NotificationService {
     private readonly gateway: NotificationsGateway,
   ) {}
 
-  async creer(userId: number, data: CreerNotificationData) {
+  async creer(
+    userId: number,
+    data: {
+      type: string;
+      titre: string;
+      message: string;
+      projetId?: number;
+      tacheId?: number;
+    },
+  ) {
+    const notification = await this.databaseService.notification.create({
+      data: {
+        userId,
+        type: data.type as any,
+        titre: data.titre,
+        message: data.message,
+        projetId: data.projetId,
+        tacheId: data.tacheId,
+        lue: false,
+      },
+    });
+
+    this.logger.log(`Notification créée :  user ${userId}`);
+
     try {
-      const notification = await this.databaseService.notification.create({
-        data: { userId, ...data },
+      this.gateway.envoyer(userId, {
+        id: notification.id,
+        titre: notification.titre,
+        message: notification.message,
+        type: notification.type,
+        projetId: notification.projetId,
+        tacheId: notification.tacheId,
+        lue: false,
+        createdAt: notification.createdAt,
       });
-      this.gateway.envoyer(userId, notification);
-      this.logger.log(`Notification créée pour user ${userId} : ${data.titre}`);
-
-      return notification;
-    } catch {
-      this.logger.warn(`⚠️ Notification non créée pour user ${userId}`);
-
-      return null;
+    } catch (err) {
+      this.logger.warn(`Erreur envoi WebSocket : ${(err as Error).message}`);
     }
+
+    return notification;
   }
 
   async lister(userId: number) {

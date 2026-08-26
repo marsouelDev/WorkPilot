@@ -1,18 +1,17 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
-import { useRouter } from "next/navigation";
 import {
   AlertCircle,
-  ArrowLeft,
   Bot,
   Check,
-  CheckCircle2,
   Copy,
   FileCode2,
   Image as ImageIcon,
   Loader2,
+  Lock,
+  Play,
   Send,
   Sparkles,
   User,
@@ -22,20 +21,11 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/cjs/styles/prism";
+import type { WebContainer } from "@webcontainer/api";
 import { useAuthStore } from "@/stores/authStore";
 import { useAssistanceIaStore } from "@/stores/assistanceIaStore";
 import type { MessageIA } from "@/types/assistanceIaType";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   MessageScroller,
   MessageScrollerContent,
@@ -43,44 +33,149 @@ import {
   MessageScrollerProvider,
   MessageScrollerViewport,
 } from "@/components/ui/message-scroller";
+import { buildProjectContext } from "@/app/lib/projectContext";
+import { parseAiResponse } from "@/app/lib/parseAiResponse";
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
 interface AssistanceIaChatProps {
   taskId: number;
+  wc?: WebContainer | null;
+  projectRoot?: string;
+  onRefresh?: () => void;
 }
 
-const USER_COLOR = "#6366F1";
-const USER_GRADIENT = "linear-gradient(135deg, #6366F1 0%, #8B5CF6 100%)";
-const IA_COLOR = "#B95F00";
+const T = {
+  bg: "#0a0a0f",
+  surface: "#12121a",
+  elevated: "#1a1a24",
+  border: "#27272f",
+  borderStrong: "#3f3f46",
+  textPrimary: "#fafafa",
+  textSecondary: "#a1a1aa",
+  textIA:"#B95F00",
+  textMuted: "#52525b",
+  accent: "#8b5cf6",
+  accentSoft: "rgba(139, 92, 246, 0.15)",
+  accentBorder: "rgba(139, 92, 246, 0.3)",
+  success: "#10b981",
+  successSoft: "rgba(16, 185, 129, 0.12)",
+  danger: "#ef4444",
+  dangerSoft: "rgba(239, 68, 68, 0.12)",
+  warning: "#f59e0b",
+  warningSoft: "rgba(245, 158, 11, 0.12)",
+  userBubble: "#1e1b4b",
+  userBubbleBorder: "rgba(139, 92, 246, 0.4)",
+  aiBubble: "#12121a",
+  aiBubbleBorder: "#27272f",
+  codeBg: "#0b0b12",
+  codeHeader: "#15151e",
+  placeholder:"#F8F9FF"
+} as const;
+
 const SUGGESTIONS = [
   "Résume-moi cette tâche en quelques points",
   "Propose un plan d'action pour avancer",
   "Quels sont les points de vigilance ?",
 ];
-
-const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5 Mo
+const EMPTY_MESSAGES: MessageIA[] = [];
+const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
 
 interface CodeBlockProps {
   className?: string;
   children?: React.ReactNode;
+  wc?: WebContainer | null;
+  projectRoot?: string;
+  onApplied?: () => void;
 }
 
-function CodeBlock({ className, children }: CodeBlockProps) {
+function normalizeApplyPath(raw: string, root: string): string {
+  let normalized = raw.replace(/^\/+/, "");
+  const rootClean = root.replace(/^\/+/, "").replace(/\/+$/, "");
+  if (rootClean && normalized.startsWith(rootClean + "/")) {
+    normalized = normalized.slice(rootClean.length + 1);
+  } else if (rootClean && normalized === rootClean) {
+    normalized = "";
+  }
+  return normalized;
+}
+
+function CodeBlock({
+  className,
+  children,
+  wc,
+  projectRoot = "/",
+  onApplied,
+}: CodeBlockProps) {
   const [copied, setCopied] = useState(false);
-  const [validated, setValidated] = useState(false);
+  const [applying, setApplying] = useState(false);
+  const [applied, setApplied] = useState(false);
+
   const code = String(children ?? "").replace(/\n$/, "");
   const languageMatch = /language-([\w+-]+)/.exec(className ?? "");
   const language = languageMatch?.[1] ?? "text";
   const lines = code.split("\n");
   const isInline = !className && !code.includes("\n") && code.length < 120;
 
+  const firstLine = lines[0] ?? "";
+  const pathMatch = firstLine.match(
+    /^(?:\/\/|#)\s*(?:Fichier|File|path)\s*:\s*(\S+)/i,
+  );
+  const filePath = pathMatch ? pathMatch[1].replace(/^\/+/, "") : null;
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch (error) {
+      console.error("Impossible de copier le code :", error);
+    }
+  };
+
+  const handleApply = async () => {
+    if (!wc || !filePath || applying) return;
+
+    setApplying(true);
+    try {
+      const normalizedPath = normalizeApplyPath(filePath, projectRoot);
+      if (!normalizedPath) {
+        console.warn("[CodeBlock] Path vide après normalisation :", filePath);
+        return;
+      }
+
+      const absolutePath =
+        projectRoot === "/"
+          ? `/${normalizedPath}`
+          : `${projectRoot}/${normalizedPath}`;
+
+      console.log(`[CodeBlock] Apply : ${filePath} → ${absolutePath}`);
+
+      const lastSlash = absolutePath.lastIndexOf("/");
+      if (lastSlash > 0) {
+        await wc.fs
+          .mkdir(absolutePath.slice(0, lastSlash), { recursive: true })
+          .catch(() => {});
+      }
+
+      await wc.fs.writeFile(absolutePath, code, "utf-8");
+      setApplied(true);
+      onApplied?.();
+    } catch (error) {
+      console.error("[CodeBlock] apply error:", error);
+    } finally {
+      setApplying(false);
+    }
+  };
+
   if (isInline) {
     return (
       <code
-        className="rounded-md border px-1.5 py-0.5 font-mono text-[12px] sm:text-[13px]"
+        className="rounded-md border px-1.5 py-0.5 font-mono text-[12px]"
         style={{
-          borderColor: `${IA_COLOR}30`,
-          backgroundColor: `${IA_COLOR}10`,
-          color: IA_COLOR,
+          borderColor: T.accentBorder,
+          backgroundColor: T.accentSoft,
+          color: T.accent,
         }}
       >
         {children}
@@ -88,62 +183,103 @@ function CodeBlock({ className, children }: CodeBlockProps) {
     );
   }
 
-  const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(code);
-      setCopied(true);
-      window.setTimeout(() => {
-        setCopied(false);
-      }, 2000);
-    } catch (error) {
-      console.error("Impossible de copier le code :", error);
-    }
-  };
-
   return (
     <div
-      className={`my-3 overflow-hidden rounded-xl border bg-[#0f172a] shadow-md transition-colors duration-300 sm:my-4 ${
-        validated ? "border-emerald-500/50" : "border-slate-800"
-      }`}
+      className="my-3 overflow-hidden rounded-xl border shadow-sm"
+      style={{ borderColor: T.border, backgroundColor: T.codeBg }}
     >
-      <div className="flex items-center justify-between gap-2 border-b border-slate-700 bg-[#111827] px-2.5 py-2 sm:px-3">
-        <div className="flex min-w-0 items-center gap-2 sm:gap-3">
-          <div className="hidden gap-1.5 sm:flex">
-            <span className="h-2.5 w-2.5 rounded-full bg-red-400" />
-            <span className="h-2.5 w-2.5 rounded-full bg-yellow-400" />
-            <span className="h-2.5 w-2.5 rounded-full bg-green-400" />
+      <div
+        className="flex items-center justify-between gap-2 border-b px-3 py-2"
+        style={{ borderColor: T.border, backgroundColor: T.codeHeader }}
+      >
+        <div className="flex min-w-0 items-center gap-2.5">
+          <div className="flex gap-1.5">
+            <span className="h-2.5 w-2.5 rounded-full bg-red-400/80" />
+            <span className="h-2.5 w-2.5 rounded-full bg-yellow-400/80" />
+            <span className="h-2.5 w-2.5 rounded-full bg-green-400/80" />
           </div>
-          <span className="truncate font-mono text-[10px] font-medium uppercase tracking-wide text-slate-400 sm:text-[11px]">
+          <span
+            className="truncate font-mono text-[11px] font-medium uppercase tracking-wider"
+            style={{ color: T.textSecondary }}
+          >
             {language}
           </span>
+          <span
+            className="flex items-center gap-1 font-mono text-[10px]"
+            style={{ color: T.textMuted }}
+          >
+            <FileCode2 className="h-3 w-3" />
+            {lines.length}
+          </span>
+          {filePath && (
+            <code
+              className="ml-2 truncate font-mono text-[11px]"
+              style={{ color: T.accent }}
+            >
+              {filePath}
+            </code>
+          )}
         </div>
 
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          onClick={handleCopy}
-          className="h-7 shrink-0 gap-1.5 text-xs text-slate-300 hover:bg-slate-700 hover:text-white"
-        >
-          {copied ? (
-            <>
-              <Check className="h-3.5 w-3.5 text-green-500" />
-              <span className="hidden sm:inline text-green-500">Copié</span>
-            </>
-          ) : (
-            <>
-              <Copy className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Copier</span>
-            </>
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={handleCopy}
+            className="flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs transition-colors"
+            style={{ color: T.textSecondary }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = T.elevated;
+              e.currentTarget.style.color = T.textPrimary;
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = "transparent";
+              e.currentTarget.style.color = T.textSecondary;
+            }}
+          >
+            {copied ? (
+              <>
+                <Check className="h-3.5 w-3.5" style={{ color: T.success }} />
+                <span style={{ color: T.success }}>Copié</span>
+              </>
+            ) : (
+              <>
+                <Copy className="h-3.5 w-3.5" />
+                <span>Copier</span>
+              </>
+            )}
+          </button>
+
+          {filePath && (
+            <button
+              type="button"
+              onClick={handleApply}
+              disabled={applying || applied}
+              className="flex h-7 shrink-0 items-center gap-1.5 rounded-md px-3 text-xs font-semibold text-white transition-all active:scale-95 disabled:opacity-60"
+              style={{ backgroundColor: applied ? T.success : T.accent }}
+            >
+              {applying ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : applied ? (
+                <Check className="h-3.5 w-3.5" />
+              ) : (
+                <Play className="h-3.5 w-3.5" />
+              )}
+              <span>
+                {applied ? "Appliqué" : applying ? "..." : "Appliquer"}
+              </span>
+            </button>
           )}
-        </Button>
+        </div>
       </div>
 
-      <div className="overflow-x-auto p-3 sm:p-4">
+      <div className="overflow-x-auto p-3">
         <div className="flex">
-          <div className="mr-3 flex shrink-0 select-none flex-col text-right font-mono text-[12px] leading-5 text-slate-600 sm:mr-4 sm:text-[13px] sm:leading-6">
+          <div
+            className="mr-3 flex shrink-0 select-none flex-col text-right font-mono text-[12px] leading-5"
+            style={{ color: T.textMuted }}
+          >
             {lines.map((_, index) => (
-              <div key={index} className="w-5 sm:w-6">
+              <div key={index} className="w-5">
                 {index + 1}
               </div>
             ))}
@@ -177,78 +313,92 @@ function CodeBlock({ className, children }: CodeBlockProps) {
           </div>
         </div>
       </div>
-
-      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-800 bg-[#111827] px-2.5 py-2 sm:px-3 sm:py-2.5">
-        <span className="flex items-center gap-1.5 font-mono text-[10px] text-slate-500 sm:text-[11px]">
-          <FileCode2 className="h-3.5 w-3.5" />
-          {lines.length} ligne{lines.length > 1 ? "s" : ""}
-        </span>
-
-        <Button
-          type="button"
-          size="sm"
-          onClick={() => setValidated((v) => !v)}
-          className={
-            validated
-              ? "h-7 gap-1.5 border border-emerald-500/40 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 hover:text-emerald-300"
-              : "h-7 gap-1.5 border-0 bg-emerald-600 text-white shadow-sm hover:bg-emerald-500"
-          }
-        >
-          {validated ? (
-            <CheckCircle2 className="h-3.5 w-3.5" />
-          ) : (
-            <Check className="h-3.5 w-3.5" />
-          )}
-
-          {validated ? "Code validé" : "Valider le code"}
-        </Button>
-      </div>
     </div>
   );
 }
 
-function IaMessageContent({ contenu }: { contenu: string }) {
+function IaMessageContent({
+  contenu,
+  wc,
+  projectRoot,
+  onApplied,
+}: {
+  contenu: string;
+  wc?: WebContainer | null;
+  projectRoot?: string;
+  onApplied?: () => void;
+}) {
   return (
-    <div className="max-w-none text-[13px] leading-6 text-slate-800 sm:text-sm">
+    <div
+      className="max-w-none text-[13px] leading-relaxed"
+      style={{ color: T.textPrimary }}
+    >
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
-          p: ({ children }) => <p className="mb-3 last:mb-0">{children}</p>,
+          p: ({ children }) => (
+            <p className="mb-3 last:mb-0" style={{ color: T.textPrimary }}>
+              {children}
+            </p>
+          ),
           h1: ({ children }) => (
-            <h1 className="mb-3 mt-4 text-lg font-bold text-slate-900 first:mt-0 sm:mb-4 sm:mt-5 sm:text-xl">
+            <h1
+              className="mb-3 mt-5 text-lg font-semibold first:mt-0"
+              style={{ color: T.textPrimary }}
+            >
               {children}
             </h1>
           ),
           h2: ({ children }) => (
-            <h2 className="mb-2 mt-4 text-base font-bold text-slate-900 first:mt-0 sm:mb-3 sm:mt-5 sm:text-lg">
+            <h2
+              className="mb-2 mt-5 text-base font-semibold first:mt-0"
+              style={{ color: T.textPrimary }}
+            >
               {children}
             </h2>
           ),
           h3: ({ children }) => (
-            <h3 className="mb-2 mt-3 text-sm font-semibold text-slate-900 first:mt-0 sm:text-base">
+            <h3
+              className="mb-2 mt-4 text-sm font-semibold first:mt-0"
+              style={{ color: T.textPrimary }}
+            >
               {children}
             </h3>
           ),
           ul: ({ children }) => (
-            <ul className="mb-3 ml-4 list-disc space-y-1 sm:ml-5">
+            <ul
+              className="mb-3 ml-4 list-disc space-y-1"
+              style={{ color: T.textPrimary }}
+            >
               {children}
             </ul>
           ),
           ol: ({ children }) => (
-            <ol className="mb-3 ml-4 list-decimal space-y-1 sm:ml-5">
+            <ol
+              className="mb-3 ml-4 list-decimal space-y-1"
+              style={{ color: T.textPrimary }}
+            >
               {children}
             </ol>
           ),
           li: ({ children }) => <li className="pl-1">{children}</li>,
           code: ({ className, children }) => (
-            <CodeBlock className={className}>{children}</CodeBlock>
+            <CodeBlock
+              className={className}
+              wc={wc}
+              projectRoot={projectRoot}
+              onApplied={onApplied}
+            >
+              {children}
+            </CodeBlock>
           ),
           blockquote: ({ children }) => (
             <blockquote
-              className="my-3 border-l-4 px-3 py-2 italic text-slate-600 sm:px-4"
+              className="my-3 border-l-2 px-3 py-2 italic"
               style={{
-                borderColor: `${IA_COLOR}60`,
-                backgroundColor: `${IA_COLOR}08`,
+                borderColor: T.accent,
+                backgroundColor: T.accentSoft,
+                color: T.textSecondary,
               }}
             >
               {children}
@@ -259,44 +409,58 @@ function IaMessageContent({ contenu }: { contenu: string }) {
               href={href}
               target="_blank"
               rel="noopener noreferrer"
-              className="font-medium underline underline-offset-2"
-              style={{ color: IA_COLOR }}
+              className="font-medium underline underline-offset-2 transition-opacity hover:opacity-80"
+              style={{ color: T.accent }}
             >
               {children}
             </a>
           ),
-          hr: () => <hr className="my-4 border-slate-200" />,
+          hr: () => <hr className="my-4" style={{ borderColor: T.border }} />,
           table: ({ children }) => (
-            <div className="my-3 overflow-x-auto rounded-lg border border-slate-200 sm:my-4">
-              <table className="w-full border-collapse text-xs sm:text-sm">
+            <div
+              className="my-3 overflow-x-auto rounded-lg border"
+              style={{ borderColor: T.border }}
+            >
+              <table className="w-full border-collapse text-xs">
                 {children}
               </table>
             </div>
           ),
           thead: ({ children }) => (
-            <thead className="bg-slate-100">{children}</thead>
+            <thead style={{ backgroundColor: T.elevated }}>{children}</thead>
           ),
           tbody: ({ children }) => <tbody>{children}</tbody>,
           tr: ({ children }) => (
-            <tr className="border-b last:border-b-0">{children}</tr>
+            <tr
+              className="border-b last:border-b-0"
+              style={{ borderColor: T.border }}
+            >
+              {children}
+            </tr>
           ),
           th: ({ children }) => (
-            <th className="border-b px-2 py-2 text-left font-semibold text-slate-700 sm:px-3">
+            <th
+              className="border-b px-2 py-2 text-left font-semibold"
+              style={{ borderColor: T.border, color: T.textPrimary }}
+            >
               {children}
             </th>
           ),
           td: ({ children }) => (
-            <td className="border-b px-2 py-2 text-slate-700 sm:px-3">
+            <td
+              className="border-b px-2 py-2"
+              style={{ borderColor: T.border, color: T.textSecondary }}
+            >
               {children}
             </td>
           ),
           strong: ({ children }) => (
-            <strong className="font-semibold text-slate-900">{children}</strong>
+            <strong className="font-semibold" style={{ color: T.textPrimary }}>
+              {children}
+            </strong>
           ),
           img: ({ src, alt }) => {
-            if (!src || typeof src !== "string") {
-              return null;
-            }
+            if (!src || typeof src !== "string") return null;
             return (
               <Image
                 src={src}
@@ -304,7 +468,8 @@ function IaMessageContent({ contenu }: { contenu: string }) {
                 width={600}
                 height={400}
                 unoptimized={src.startsWith("data:")}
-                className="my-3 max-w-full rounded-lg border border-slate-200"
+                className="my-3 max-w-full rounded-lg border"
+                style={{ borderColor: T.border }}
               />
             );
           },
@@ -316,55 +481,103 @@ function IaMessageContent({ contenu }: { contenu: string }) {
   );
 }
 
-export default function AssistanceIaChat({ taskId }: AssistanceIaChatProps) {
-  const router = useRouter();
+function Avatar({ variant }: { variant: "user" | "assistant" }) {
+  const isUser = variant === "user";
+  const borderColor = isUser ? T.accentBorder : T.border;
+  const bgColor = isUser ? T.accentSoft : T.elevated;
+  const iconColor = isUser ? T.accent : T.textSecondary;
+
+  return (
+    <div
+      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
+      style={{
+        backgroundColor: bgColor,
+        boxShadow: `inset 0 0 0 1px ${borderColor}, 0 1px 2px rgba(0,0,0,0.1)`,
+      }}
+    >
+      {isUser ? (
+        <User className="h-4 w-4" style={{ color: iconColor }} />
+      ) : (
+        <Bot className="h-4 w-4" style={{ color: iconColor }} />
+      )}
+    </div>
+  );
+}
+
+export default function AssistanceIaChat({
+  taskId,
+  wc,
+  projectRoot = "/",
+  onRefresh,
+}: AssistanceIaChatProps) {
   const { token } = useAuthStore();
 
   const {
-    task,
-    messages,
+    messages: storeMessages,
     isLoadingTask,
-    isSending,
     error,
     chargerTache,
-    envoyerMessage,
     clearError,
   } = useAssistanceIaStore();
 
   const [message, setMessage] = useState("");
-
-  /*IMAGES JOINTES (base64) */
-
   const [attachedImages, setAttachedImages] = useState<string[]>([]);
+  const [isSendingLocal, setIsSendingLocal] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [localMessagesStore, setLocalMessagesStore] = useState<
+    Record<number, MessageIA[]>
+  >({});
+
+  const localMessages = localMessagesStore[taskId] ?? EMPTY_MESSAGES;
+  const addLocalMessage = (msg: MessageIA) => {
+    setLocalMessagesStore((prev) => ({
+      ...prev,
+      [taskId]: [...(prev[taskId] ?? []), msg],
+    }));
+  };
+
+  const removeLastLocalMessage = () => {
+    setLocalMessagesStore((prev) => ({
+      ...prev,
+      [taskId]: (prev[taskId] ?? []).slice(0, -1),
+    }));
+  };
+
+  const allMessages = useMemo(() => {
+    const storeIds = new Set(storeMessages.map((m) => m.id));
+    const filteredLocal = localMessages.filter((m) => !storeIds.has(m.id));
+    return [...storeMessages, ...filteredLocal];
+  }, [storeMessages, localMessages]);
+
+  const isSending = isSendingLocal;
+
+  const isAccessError = useMemo(() => {
+    if (!error) return false;
+    const e = error.toLowerCase();
+    return e.includes("attribu") || e.includes("assign") || e.includes("accès");
+  }, [error]);
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files ?? []);
-
-    if (files.length === 0) {
-      return;
-    }
+    if (files.length === 0) return;
 
     files.forEach((file) => {
       if (!file.type.startsWith("image/")) {
         console.warn("Fichier ignoré (pas une image) :", file.name);
         return;
       }
-
       if (file.size > MAX_IMAGE_SIZE) {
         console.warn("Image trop volumineuse :", file.name);
         return;
       }
-
       const reader = new FileReader();
-
       reader.onload = (e) => {
         const result = e.target?.result;
         if (typeof result === "string") {
           setAttachedImages((prev) => [...prev, result]);
         }
       };
-
       reader.readAsDataURL(file);
     });
 
@@ -378,43 +591,31 @@ export default function AssistanceIaChat({ taskId }: AssistanceIaChatProps) {
   };
 
   useEffect(() => {
-    if (!token || !taskId) {
-      return;
-    }
+    if (!token || !taskId) return;
     chargerTache(token, taskId);
   }, [token, taskId, chargerTache]);
 
   useEffect(() => {
-    if (message && error) {
-      clearError();
-    }
+    if (message && error) clearError();
   }, [message, error, clearError]);
 
   useEffect(() => {
-    if (!error) {
-      return;
-    }
-    const timer = window.setTimeout(() => {
-      clearError();
-    }, 1500);
-    return () => {
-      window.clearTimeout(timer);
-    };
-  }, [error, clearError]);
+    if (!error || isAccessError) return;
+    const timer = window.setTimeout(() => clearError(), 3000);
+    return () => window.clearTimeout(timer);
+  }, [error, isAccessError, clearError]);
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const contenu = message.trim();
-    if ((!contenu && attachedImages.length === 0) || !token || isSending) {
+    if ((!contenu && attachedImages.length === 0) || !token || isSending)
       return;
-    }
 
     let contenuFinal = contenu;
     if (attachedImages.length > 0) {
       const imagesMarkdown = attachedImages
         .map((img, i) => `![Image ${i + 1}](${img})`)
         .join("\n\n");
-
       contenuFinal = contenu
         ? `${contenu}\n\n${imagesMarkdown}`
         : imagesMarkdown;
@@ -422,11 +623,64 @@ export default function AssistanceIaChat({ taskId }: AssistanceIaChatProps) {
 
     setMessage("");
     setAttachedImages([]);
+    setIsSendingLocal(true);
+
+    const userMsg: MessageIA = {
+      id: Date.now(),
+      conversationId: 0,
+      role: "utilisateur",
+      contenu: contenuFinal,
+      createdAt: new Date().toISOString(),
+    };
+    addLocalMessage(userMsg);
 
     try {
-      await envoyerMessage(token, taskId, contenuFinal);
+      let projectStructure: string | undefined;
+      let relevantFiles: { path: string; content: string }[] | undefined;
+
+      if (wc) {
+        try {
+          const context = await buildProjectContext(wc, projectRoot);
+          projectStructure = context.structure;
+          relevantFiles = context.relevantFiles;
+          console.log(
+            `[IA] Contexte : ${relevantFiles.length} fichiers, ${projectStructure.split("\n").length} lignes`,
+          );
+        } catch (error) {
+          console.warn("[IA] Contexte non disponible :", error);
+        }
+      }
+
+      const res = await fetch(`${API_URL}/assistance-ia/tasks/${taskId}/chat`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          message: contenuFinal,
+          projectStructure,
+          relevantFiles,
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.message ?? `Erreur HTTP ${res.status}`);
+      }
+
+      const data = await res.json();
+      addLocalMessage(data.message);
+
+      const parsed = parseAiResponse(data.message.contenu);
+      if (parsed.actions.length > 0) {
+        onRefresh?.();
+      }
     } catch (error) {
       console.error("Erreur envoi message IA :", error);
+      removeLastLocalMessage();
+    } finally {
+      setIsSendingLocal(false);
     }
   };
 
@@ -437,201 +691,153 @@ export default function AssistanceIaChat({ taskId }: AssistanceIaChatProps) {
     }
   };
 
-  /* ==========================================================
-     RETOUR VERS LA LISTE DES TÂCHES
-  ========================================================== */
-
-  const handleRetour = () => {
-    if (task?.project?.id) {
-      router.push(`/projects/${task.project.id}/tasks`);
-    } else {
-      router.back();
-    }
-  };
+  if (isAccessError) {
+    return (
+      <div
+        className="flex h-full w-full flex-col items-center justify-center gap-4 p-6 text-center"
+        style={{ backgroundColor: T.bg }}
+      >
+        <div
+          className="flex h-14 w-14 items-center justify-center rounded-2xl"
+          style={{
+            backgroundColor: T.elevated,
+            boxShadow: `inset 0 0 0 1px ${T.border}`,
+          }}
+        >
+          <Lock className="h-6 w-6" style={{ color: T.textMuted }} />
+        </div>
+        <h3 className="text-sm font-semibold" style={{ color: T.textPrimary }}>
+          Assistance IA verrouillée
+        </h3>
+        <p
+          className="max-w-xs text-xs leading-relaxed"
+          style={{ color: T.textMuted }}
+        >
+          {error}
+        </p>
+      </div>
+    );
+  }
 
   if (isLoadingTask) {
     return (
-      <Card className="flex h-175 w-full items-center justify-center">
+      <div
+        className="flex h-full w-full items-center justify-center"
+        style={{ backgroundColor: T.bg }}
+      >
         <div className="flex flex-col items-center gap-3">
           <Loader2
             className="h-8 w-8 animate-spin"
-            style={{ color: IA_COLOR }}
+            style={{ color: T.accent }}
           />
-          <p className="text-sm text-muted-foreground">
+          <p className="text-sm" style={{ color: T.textMuted }}>
             Chargement de WorkPilot AI...
           </p>
         </div>
-      </Card>
+      </div>
     );
   }
 
   return (
-    <Card className="flex h-175 w-full flex-col overflow-hidden border-slate-200 shadow-sm">
+    <div
+      className="flex h-full w-full flex-col overflow-hidden"
+      style={{ backgroundColor: T.bg, color: T.textPrimary }}
+    >
       <style>{`
         @keyframes wp-message-in {
-          from { opacity: 0; transform: translateY(10px) scale(0.98); }
-          to   { opacity: 1; transform: translateY(0) scale(1); }
+          from { opacity: 0; transform: translateY(8px); }
+          to   { opacity: 1; transform: translateY(0); }
         }
         @keyframes wp-dot {
-          0%, 60%, 100% { transform: translateY(0); opacity: .4; }
+          0%, 60%, 100% { transform: translateY(0); opacity: .3; }
           30%           { transform: translateY(-4px); opacity: 1; }
         }
         @keyframes wp-error-in {
-          from { opacity: 0; transform: translateY(-10px); }
+          from { opacity: 0; transform: translateY(-8px); }
           to   { opacity: 1; transform: translateY(0); }
         }
-        .wp-message-in {
-          animation: wp-message-in .35s cubic-bezier(.21,1.02,.73,1) both;
-        }
-        .wp-error-in {
-          animation: wp-error-in .3s ease-out both;
-        }
-        @keyframes wp-ping {
-          0%        { transform: scale(1);   opacity: .6; }
-          80%, 100% { transform: scale(2.2); opacity: 0;  }
-        }
-        .wp-ping {
-          animation: wp-ping 1.8s cubic-bezier(0, 0, .2, 1) infinite;
-        }
+        .wp-message-in { animation: wp-message-in .3s ease-out both; }
+        .wp-error-in   { animation: wp-error-in .25s ease-out both; }
       `}</style>
 
-      <div
-        className="h-1 w-full shrink-0"
-        style={{
-          background: `linear-gradient(90deg, ${USER_COLOR}, ${IA_COLOR})`,
-        }}
-      />
-
-      <CardHeader className="border-b bg-white p-4 sm:p-6">
-        {/* ====================================================
-            BOUTON RETOUR
-        ==================================================== */}
-
-        <div className="mb-3 flex items-center justify-between">
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={handleRetour}
-            className="gap-1.5 text-xs text-slate-600 hover:text-slate-900 sm:text-sm"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            <span className="hidden sm:inline">Retour aux tâches</span>
-            <span className="sm:hidden">Retour</span>
-          </Button>
-        </div>
-
-        <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-4">
-          <div className="flex min-w-0 items-center gap-2.5 sm:gap-3">
-            <div className="relative shrink-0">
-              <div
-                className="flex h-10 w-10 items-center justify-center rounded-xl sm:h-11 sm:w-11"
-                style={{ backgroundColor: `${IA_COLOR}15` }}
-              >
-                <Bot
-                  className="h-5 w-5 sm:h-6 sm:w-6"
-                  style={{ color: IA_COLOR }}
-                />
-              </div>
-              <span className="absolute -bottom-0.5 -right-0.5 flex h-2.5 w-2.5 sm:h-3 sm:w-3">
-                <span className="wp-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                <span className="relative inline-flex h-full w-full rounded-full border-2 border-white bg-emerald-500" />
-              </span>
-            </div>
-
-            <div className="min-w-0">
-              <CardTitle className="flex flex-wrap items-center gap-2 text-base text-slate-900 sm:text-lg">
-                <span className="truncate">WorkPilot AI</span>
-                <Badge
-                  className="gap-1 border-0 text-white"
-                  style={{ backgroundColor: IA_COLOR }}
-                >
-                  <Sparkles className="h-3 w-3" />
-                  IA
-                </Badge>
-              </CardTitle>
-              <CardDescription className="truncate text-xs sm:text-sm">
-                Assistant intelligent dédié à cette tâche
-              </CardDescription>
-            </div>
-          </div>
-        </div>
-
-        {task?.tache && (
+      {error && (
+        <div className="px-3 pt-3">
           <div
-            className="mt-3 rounded-xl border p-3 sm:mt-4 sm:p-4"
+            className="flex items-start gap-2 rounded-lg border px-3 py-2.5 wp-error-in"
             style={{
-              borderColor: `${IA_COLOR}25`,
-              backgroundColor: `${IA_COLOR}08`,
+              borderColor: T.danger,
+              backgroundColor: T.dangerSoft,
             }}
           >
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
-              <div className="min-w-0">
-                <p className="text-sm font-semibold text-slate-900">
-                  {task.tache.titre}
-                </p>
-                <p className="mt-1 truncate text-xs text-muted-foreground">
-                  Projet : {task.project.titre}
-                </p>
-              </div>
-              <Badge variant="outline" className="w-fit shrink-0">
-                {task.tache.statut}
-              </Badge>
-            </div>
-
-            {task.assignee && (
-              <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground sm:mt-3">
-                <User className="h-3.5 w-3.5" />
-                <span>Assignée à</span>
-                <span className="font-medium text-slate-900">
-                  {task.assignee.prenom} {task.assignee.nom}
-                </span>
-              </div>
-            )}
+            <AlertCircle
+              className="h-4 w-4 shrink-0"
+              style={{ color: T.danger }}
+            />
+            <p className="text-xs" style={{ color: T.danger }}>
+              {error}
+            </p>
           </div>
-        )}
-      </CardHeader>
-
-      {error && (
-        <div className="px-3 pt-3 sm:px-4 sm:pt-4">
-          <Alert variant="destructive" className="wp-error-in">
-            <AlertCircle className="h-4 w-4" />
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
         </div>
       )}
 
-      <CardContent className="min-h-0 flex-1 bg-slate-50/50 p-0">
+      <div className="min-h-0 flex-1">
         <MessageScrollerProvider autoScroll defaultScrollPosition="end">
           <MessageScroller className="h-full">
             <MessageScrollerViewport>
-              <MessageScrollerContent className="mx-auto flex min-h-full max-w-5xl flex-col gap-3 p-3 sm:gap-5 sm:p-5">
-                {messages.length === 0 && (
+              <MessageScrollerContent className="flex min-h-full flex-col gap-5 p-4">
+                {allMessages.length === 0 && (
                   <MessageScrollerItem messageId="welcome-message">
-                    <div className="wp-message-in flex min-h-80 flex-col items-center justify-center px-2 text-center sm:min-h-95 sm:px-4">
+                    <div className="wp-message-in flex flex-col items-center justify-center px-2 py-12 text-center">
                       <div
-                        className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl shadow-sm sm:mb-5 sm:h-16 sm:w-16"
-                        style={{ backgroundColor: `${IA_COLOR}15` }}
+                        className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl"
+                        style={{
+                          backgroundColor: T.accentSoft,
+                          boxShadow: `inset 0 0 0 1px ${T.accentBorder}, 0 0 20px ${T.accentSoft}`,
+                        }}
                       >
-                        <Bot
-                          className="h-7 w-7 sm:h-8 sm:w-8"
-                          style={{ color: IA_COLOR }}
+                        <Sparkles
+                          className="h-7 w-7"
+                          style={{ color: T.accent }}
                         />
                       </div>
-                      <h3 className="text-base font-semibold text-slate-900 sm:text-lg">
+                      <h3
+                        className="text-lg font-semibold"
+                        style={{ color: T.textPrimary }}
+                      >
                         Bonjour 👋
                       </h3>
-                      <p className="mt-2 max-w-md text-[13px] leading-6 text-muted-foreground sm:text-sm">
-                        Je suis WorkPilot AI, ton assistant spécialisé dans
-                        cette tâche. Pose-moi une question pour commencer.
+                      <p
+                        className="mt-2 max-w-xs text-[13px] leading-relaxed"
+                        style={{ color: T.textSecondary }}
+                      >
+                        Je suis WorkPilot AI. Pose-moi une question sur cette
+                        tâche. J&apos;ai accès au projet et peux créer/modifier
+                        des fichiers directement.
                       </p>
-                      <div className="mt-4 flex flex-wrap justify-center gap-2 sm:mt-6">
+                      <div className="mt-6 flex max-w-md flex-wrap justify-center gap-2">
                         {SUGGESTIONS.map((suggestion) => (
                           <button
                             key={suggestion}
                             type="button"
                             onClick={() => setMessage(suggestion)}
-                            className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-600 shadow-sm transition hover:border-orange-200 hover:text-slate-900 hover:shadow sm:px-4 sm:py-2 sm:text-xs"
+                            className="rounded-full border px-3.5 py-2 text-[12px] font-medium transition-all"
+                            style={{
+                              borderColor: T.border,
+                              backgroundColor: T.surface,
+                              color: T.textSecondary,
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.borderColor =
+                                T.accentBorder;
+                              e.currentTarget.style.color = T.textPrimary;
+                              e.currentTarget.style.backgroundColor =
+                                T.elevated;
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.borderColor = T.border;
+                              e.currentTarget.style.color = T.textSecondary;
+                              e.currentTarget.style.backgroundColor = T.surface;
+                            }}
                           >
                             {suggestion}
                           </button>
@@ -641,13 +847,10 @@ export default function AssistanceIaChat({ taskId }: AssistanceIaChatProps) {
                   </MessageScrollerItem>
                 )}
 
-                {messages.map((msg: MessageIA) => {
+                {allMessages.map((msg: MessageIA) => {
                   const isUser = msg.role === "utilisateur";
-                  const isAssistant = msg.role === "assistant";
 
-                  if (msg.role === "systeme") {
-                    return null;
-                  }
+                  if (msg.role === "systeme") return null;
 
                   return (
                     <MessageScrollerItem
@@ -656,68 +859,77 @@ export default function AssistanceIaChat({ taskId }: AssistanceIaChatProps) {
                       scrollAnchor={isUser}
                     >
                       <div
-                        className={`wp-message-in flex items-end gap-2 sm:gap-3 ${
-                          isUser ? "justify-end" : "justify-start"
+                        className={`wp-message-in flex gap-3 ${
+                          isUser ? "flex-row-reverse" : "flex-row"
                         }`}
                       >
-                        {isAssistant && (
-                          <div
-                            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full sm:h-9 sm:w-9"
-                            style={{ backgroundColor: `${IA_COLOR}15` }}
-                          >
-                            <Bot
-                              className="h-4 w-4 sm:h-5 sm:w-5"
-                              style={{ color: IA_COLOR }}
-                            />
-                          </div>
-                        )}
+                        <Avatar variant={isUser ? "user" : "assistant"} />
 
-                        <div
-                          className={`min-w-0 max-w-[88%] wrap-break-word rounded-2xl px-3 py-2.5 shadow-sm sm:max-w-[85%] sm:px-4 sm:py-3 ${
-                            isUser
-                              ? "rounded-br-md text-white shadow-indigo-200"
-                              : "rounded-bl-md border border-slate-200 bg-white"
-                          }`}
-                          style={
-                            isUser ? { background: USER_GRADIENT } : undefined
-                          }
-                        >
-                          {isUser ? (
-                            <div className="whitespace-pre-wrap text-[13px] leading-6 sm:text-sm">
-                              <ReactMarkdown
-                                remarkPlugins={[remarkGfm]}
-                                components={{
-                                  p: ({ children }) => (
-                                    <p className="mb-2 last:mb-0">{children}</p>
-                                  ),
-                                  img: ({ src, alt }) => {
-                                    if (!src || typeof src !== "string") {
-                                      return null;
-                                    }
-                                    return (
-                                      <Image
-                                        src={src}
-                                        alt={alt ?? "Image jointe"}
-                                        width={400}
-                                        height={300}
-                                        unoptimized={src.startsWith("data:")}
-                                        className="my-2 max-w-full rounded-lg border border-white/20"
-                                      />
-                                    );
-                                  },
-                                }}
+                        <div className="min-w-0 max-w-[75%] flex flex-col">
+                          <div
+                            className="rounded-2xl px-4 py-3"
+                            style={
+                              isUser
+                                ? {
+                                    backgroundColor: T.userBubble,
+                                    boxShadow: `inset 0 0 0 1px ${T.userBubbleBorder}`,
+                                    borderTopRightRadius: "4px",
+                                  }
+                                : {
+                                    backgroundColor: T.aiBubble,
+                                    boxShadow: `inset 0 0 0 1px ${T.aiBubbleBorder}`,
+                                    borderTopLeftRadius: "4px",
+                                  }
+                            }
+                          >
+                            {isUser ? (
+                              <div
+                                className="whitespace-pre-wrap text-[13px] leading-relaxed"
+                                style={{ color: T.textPrimary }}
                               >
-                                {msg.contenu}
-                              </ReactMarkdown>
-                            </div>
-                          ) : (
-                            <IaMessageContent contenu={msg.contenu} />
-                          )}
+                                <ReactMarkdown
+                                  remarkPlugins={[remarkGfm]}
+                                  components={{
+                                    p: ({ children }) => (
+                                      <p className="mb-2 last:mb-0">
+                                        {children}
+                                      </p>
+                                    ),
+                                    img: ({ src, alt }) => {
+                                      if (!src || typeof src !== "string")
+                                        return null;
+                                      return (
+                                        <Image
+                                          src={src}
+                                          alt={alt ?? "Image jointe"}
+                                          width={400}
+                                          height={300}
+                                          unoptimized={src.startsWith("data:")}
+                                          className="my-2 max-w-full rounded-lg border"
+                                          style={{ borderColor: T.border }}
+                                        />
+                                      );
+                                    },
+                                  }}
+                                >
+                                  {msg.contenu}
+                                </ReactMarkdown>
+                              </div>
+                            ) : (
+                              <IaMessageContent
+                                contenu={msg.contenu}
+                                wc={wc}
+                                projectRoot={projectRoot}
+                                onApplied={onRefresh}
+                              />
+                            )}
+                          </div>
 
                           <p
-                            className={`mt-1.5 text-[10px] sm:mt-2 ${
-                              isUser ? "text-white/70" : "text-slate-500"
+                            className={`mt-1 px-1 text-[10px] ${
+                              isUser ? "text-right" : "text-left"
                             }`}
+                            style={{ color: T.textMuted }}
                           >
                             {new Date(msg.createdAt).toLocaleTimeString(
                               "fr-FR",
@@ -728,18 +940,6 @@ export default function AssistanceIaChat({ taskId }: AssistanceIaChatProps) {
                             )}
                           </p>
                         </div>
-
-                        {isUser && (
-                          <div
-                            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full sm:h-9 sm:w-9"
-                            style={{ backgroundColor: `${USER_COLOR}18` }}
-                          >
-                            <User
-                              className="h-4 w-4 sm:h-5 sm:w-5"
-                              style={{ color: USER_COLOR }}
-                            />
-                          </div>
-                        )}
                       </div>
                     </MessageScrollerItem>
                   );
@@ -747,31 +947,27 @@ export default function AssistanceIaChat({ taskId }: AssistanceIaChatProps) {
 
                 {isSending && (
                   <MessageScrollerItem messageId="typing-indicator">
-                    <div className="wp-message-in flex items-end gap-2 sm:gap-3">
+                    <div className="wp-message-in flex gap-3">
+                      <Avatar variant="assistant" />
                       <div
-                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full sm:h-9 sm:w-9"
-                        style={{ backgroundColor: `${IA_COLOR}15` }}
+                        className="rounded-2xl px-4 py-3.5"
+                        style={{
+                          backgroundColor: T.aiBubble,
+                          boxShadow: `inset 0 0 0 1px ${T.aiBubbleBorder}`,
+                          borderTopLeftRadius: "4px",
+                        }}
                       >
-                        <Bot
-                          className="h-4 w-4 sm:h-5 sm:w-5"
-                          style={{ color: IA_COLOR }}
-                        />
-                      </div>
-
-                      <div className="rounded-2xl rounded-bl-md border border-slate-200 bg-white px-3 py-2.5 shadow-sm sm:px-4 sm:py-3">
-                        <div className="flex items-center gap-2 sm:gap-3">
-                          <div className="flex items-center gap-1">
-                            {[0, 1, 2].map((i) => (
-                              <span
-                                key={i}
-                                className="h-1.5 w-1.5 rounded-full sm:h-2 sm:w-2"
-                                style={{
-                                  backgroundColor: IA_COLOR,
-                                  animation: `wp-dot 1.2s ${i * 0.15}s ease-in-out infinite`,
-                                }}
-                              />
-                            ))}
-                          </div>
+                        <div className="flex items-center gap-1.5">
+                          {[0, 1, 2].map((i) => (
+                            <span
+                              key={i}
+                              className="h-1.5 w-1.5 rounded-full"
+                              style={{
+                                backgroundColor: T.textIA,
+                                animation: `wp-dot 1.2s ${i * 0.15}s ease-in-out infinite`,
+                              }}
+                            />
+                          ))}
                         </div>
                       </div>
                     </div>
@@ -781,34 +977,33 @@ export default function AssistanceIaChat({ taskId }: AssistanceIaChatProps) {
             </MessageScrollerViewport>
           </MessageScroller>
         </MessageScrollerProvider>
-      </CardContent>
+      </div>
 
-      <div className="border-t bg-white p-3 sm:p-4">
-        <form
-          onSubmit={handleSubmit}
-          className="mx-auto flex max-w-5xl flex-col gap-2"
-        >
-          {/* PREVIEW DES IMAGES JOINTES */}
-
+      <div
+        className="border-t p-3"
+        style={{ borderColor: T.border, backgroundColor: T.bg }}
+      >
+        <form onSubmit={handleSubmit} className="flex flex-col gap-2">
           {attachedImages.length > 0 && (
             <div className="flex flex-wrap gap-2">
               {attachedImages.map((img, index) => (
                 <div
                   key={index}
-                  className="group relative h-20 w-20 overflow-hidden rounded-lg border border-slate-200 bg-slate-100 shadow-sm"
+                  className="group relative h-16 w-16 overflow-hidden rounded-lg shadow-sm"
+                  style={{ boxShadow: `inset 0 0 0 1px ${T.border}` }}
                 >
                   <Image
                     src={img}
                     alt={`Preview ${index + 1}`}
-                    width={80}
-                    height={80}
+                    width={64}
+                    height={64}
                     unoptimized
                     className="h-full w-full object-cover"
                   />
                   <button
                     type="button"
                     onClick={() => removeImage(index)}
-                    className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-white opacity-0 transition hover:bg-black/80 group-hover:opacity-100"
+                    className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-black/70 text-white opacity-0 transition hover:bg-black/90 group-hover:opacity-100"
                     title="Retirer cette image"
                   >
                     <X className="h-3 w-3" />
@@ -818,7 +1013,15 @@ export default function AssistanceIaChat({ taskId }: AssistanceIaChatProps) {
             </div>
           )}
 
-          <div className="flex items-end gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-2 focus-within:border-slate-300 focus-within:ring-2 focus-within:ring-slate-200">
+          <div
+            className="flex items-end gap-2 rounded-xl p-2 transition-colors focus-within:ring-2"
+            style={{
+              backgroundColor: T.surface,
+              boxShadow: `inset 0 0 0 1px ${T.border}`,
+              // @ts-expect-error ring-color via style
+              "--tw-ring-color": T.accentBorder,
+            }}
+          >
             <input
               ref={fileInputRef}
               type="file"
@@ -829,59 +1032,72 @@ export default function AssistanceIaChat({ taskId }: AssistanceIaChatProps) {
               disabled={isSending || !token}
             />
 
-            <Button
+            <button
               type="button"
-              size="icon"
-              variant="ghost"
               onClick={() => fileInputRef.current?.click()}
               disabled={isSending || !token}
-              className="h-9 w-9 shrink-0 rounded-lg text-slate-600 hover:bg-slate-200 hover:text-slate-900 sm:h-10 sm:w-10"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors disabled:opacity-40"
+              style={{ color: T.textSecondary }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = T.elevated;
+                e.currentTarget.style.color = T.textPrimary;
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = "transparent";
+                e.currentTarget.style.color = T.textSecondary;
+              }}
               title="Joindre une image"
             >
-              <ImageIcon className="h-4 w-4 sm:h-5 sm:w-5" />
-            </Button>
+              <ImageIcon className="h-4 w-4" />
+            </button>
 
             <Textarea
               value={message}
               onChange={(event) => setMessage(event.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Pose une question sur cette tâche... "
+              placeholder="Pose une question sur cette tâche..."
               disabled={isSending || !token}
               rows={1}
-              className="min-h-10 max-h-40 resize-none border-0 bg-transparent p-1.5 text-[13px] shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 sm:text-sm"
+              className="min-h-9 max-h-32 resize-none border-0 bg-transparent p-1.5 text-[13px] shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
               style={{
+                color: T.textPrimary,
                 height: "auto",
                 overflowY: "auto",
               }}
             />
 
-            <Button
+            <button
               type="submit"
-              size="icon"
               disabled={
                 (!message.trim() && attachedImages.length === 0) ||
                 isSending ||
                 !token
               }
-              className="h-9 w-9 shrink-0 rounded-lg border-0 text-white shadow-md transition active:scale-95 sm:h-10 sm:w-10"
-              style={{ background: USER_GRADIENT }}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-white shadow-md transition-all active:scale-95 disabled:opacity-40"
+              style={{
+                backgroundColor: T.accent,
+              }}
+              onMouseEnter={(e) => {
+                if (!e.currentTarget.disabled)
+                  e.currentTarget.style.backgroundColor = "#7c3aed";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = T.placeholder;
+              }}
             >
               {isSending ? (
-                <Loader2 className="h-4 w-4 animate-spin sm:h-5 sm:w-5" />
+                <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
-                <Send className="h-4 w-4 sm:h-5 sm:w-5" />
+                <Send className="h-4 w-4" />
               )}
-            </Button>
+            </button>
           </div>
 
-          <p className="text-center text-[10px] text-muted-foreground sm:text-[11px]">
-            WorkPilot AI répond uniquement dans le contexte de cette tâche.
-            <span className="ml-1 hidden sm:inline">
-              Entrée pour envoyer · Shift + Entrée pour sauter une ligne.
-            </span>
+          <p className="text-center text-[10px]" style={{ color: T.textMuted }}>
+            Entrée pour envoyer · Shift+Entrée pour sauter une ligne
           </p>
         </form>
       </div>
-    </Card>
+    </div>
   );
 }

@@ -36,9 +36,7 @@ export class UsersController {
     };
   }
 
-  @ApiOperation({
-    summary: 'creer  de utilisateur ',
-  })
+  @ApiOperation({ summary: 'Créer un utilisateur' })
   @ApiBearerAuth('JWT')
   @UseGuards(JwtAuthGuard, RoleGuard)
   @Roles(RoleGlobal.admin)
@@ -53,9 +51,8 @@ export class UsersController {
 
     return user;
   }
-  @ApiOperation({
-    summary: 'liste tous les utilisateur connecter',
-  })
+
+  @ApiOperation({ summary: 'Liste tous les utilisateurs' })
   @ApiBearerAuth('JWT')
   @UseGuards(JwtAuthGuard, RoleGuard)
   @Roles(RoleGlobal.admin)
@@ -64,9 +61,7 @@ export class UsersController {
     return this.usersService.findAll(role);
   }
 
-  @ApiOperation({
-    summary: 'lister un seul utilisateur connecter',
-  })
+  @ApiOperation({ summary: 'Lister un seul utilisateur' })
   @ApiBearerAuth('JWT')
   @UseGuards(JwtAuthGuard, RoleGuard)
   @Roles(RoleGlobal.admin)
@@ -81,9 +76,7 @@ export class UsersController {
     return user;
   }
 
-  @ApiOperation({
-    summary: 'Modifier les donnes de utitilisateur choisir',
-  })
+  @ApiOperation({ summary: "Modifier les données d'un utilisateur" })
   @ApiBearerAuth('JWT')
   @Patch(':id')
   async update(
@@ -94,9 +87,7 @@ export class UsersController {
   }
 
   @ApiBearerAuth('JWT')
-  @ApiOperation({
-    summary: 'change le statut de un  un utilisateur connecter',
-  })
+  @ApiOperation({ summary: "Changer le statut d'un utilisateur" })
   @Patch(':id/statut')
   @UseGuards(JwtAuthGuard, RoleGuard)
   @Roles(RoleGlobal.admin)

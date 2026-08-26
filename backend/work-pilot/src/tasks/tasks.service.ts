@@ -78,9 +78,7 @@ export class TasksService implements OnApplicationBootstrap {
       return { tachesRetirees: 0 };
     }
 
-    this.logger.log(
-      `⏰ ${tachesExpirees.length} tâche(s) expirée(s) trouvée(s)`,
-    );
+    this.logger.log(`${tachesExpirees.length} tâche(s) expirée(s) trouvée(s)`);
 
     let successCount = 0;
     let errorCount = 0;

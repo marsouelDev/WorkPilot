@@ -173,6 +173,7 @@ export class ProjectsController {
   }
 
   @Get(':id/chargement-github')
+  @Roles(RoleGlobal.membre)
   @ApiOperation({
     summary: 'Charger les fichiers du projet depuis GitHub',
   })
@@ -180,11 +181,13 @@ export class ProjectsController {
   chargerProjetGithub(
     @Param('id', ParseIntPipe) id: number,
     @Req() req: RequestAvecUtilisateur,
+    @Query('branche') branche?: string,
   ) {
-    return this.projectsService.chargerProjetGithub(id, req.user.id);
+    return this.projectsService.chargerProjetGithub(+id, req.user.id, branche);
   }
 
   @Post(':id/sync')
+  @Roles(RoleGlobal.membre)
   @ApiOperation({
     summary: 'Synchroniser les fichiers vers GitHub',
   })
@@ -207,6 +210,7 @@ export class ProjectsController {
   }
 
   @Get(':id/branches')
+  @Roles(RoleGlobal.membre)
   @ApiOperation({
     summary: 'Lister toutes les branches du dépôt GitHub',
   })
@@ -216,5 +220,18 @@ export class ProjectsController {
     @Req() req: RequestAvecUtilisateur,
   ) {
     return this.projectsService.listerBranches(id, req.user.id);
+  }
+  @Get(':id/branches-detaillees')
+  @Roles(RoleGlobal.membre)
+  @ApiOperation({
+    summary: 'Lister TOUTES les branches du projet avec détails complets',
+  })
+  @ApiResponse({ status: 200, description: 'Liste complète des branches' })
+  @ApiResponse({ status: 403, description: 'Accès au projet refusé' })
+  async listerBranchesDetaillees(
+    @Req() req: RequestAvecUtilisateur,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.projectsService.listerBranchesDetaillees(id, req.user.id);
   }
 }

@@ -37,13 +37,7 @@ export default function Page({ params }: PageProps) {
     return <div className="p-6">Identifiant du projet invalide.</div>;
   }
 
-  /**
-   * Seul le créateur du projet peut inviter.
-   *
-   * Le chef est volontairement exclu de l'endpoint
-   * listerMembresProjet(), donc on ne cherche plus
-   * le chef dans "membres".
-   */
+  
   const estChefProjet = projet?.createurId === user?.id;
 
   return (

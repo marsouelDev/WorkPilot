@@ -1,44 +1,72 @@
 "use client";
 
-import { useEffect } from "react";
-import { io } from "socket.io-client";
+import { useEffect, useRef } from "react";
+import { io, type Socket } from "socket.io-client";
+import { toast } from "sonner";
 import { useAuthStore } from "@/stores/authStore";
 import { useNotificationStore } from "@/stores/notificationStore";
+import type { NotificationApi } from "@/types/notificationType";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
-
-/* ✅ IMPORTANT : socket.io se connecte à la RACINE du serveur,
-   PAS au préfixe /api de NestJS */
-const SOCKET_URL = API_URL.replace(/\/api$/, "");
+const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
 export function useNotificationSocket() {
-  const token = useAuthStore((s) => s.token);
-  const ajouterEnDirect = useNotificationStore((s) => s.ajouterEnDirect);
+  const { token, user } = useAuthStore();
+  const socketRef = useRef<Socket | null>(null);
 
   useEffect(() => {
-    if (!token) return;
+    if (!token || !API_URL || !user?.id) return;
 
-    const socket = io(SOCKET_URL, {
+    const wsUrl = API_URL.replace(/\/api\/?$/, "");
+    console.log(`[Socket] 🔄 Connexion à ${wsUrl}`);
+
+    const socket = io(wsUrl, {
       auth: { token },
-      transports: ["websocket", "polling"],
+      transports: ["websocket"],
+      reconnection: true,
       reconnectionAttempts: 5,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      timeout: 10000,
     });
+
+    socketRef.current = socket;
 
     socket.on("connect", () => {
-      console.log("Socket connecté :", socket.id);
+      console.log(`[Socket] ✅ Connecté (ID: ${socket.id})`);
     });
 
+    socket.on("disconnect", (reason) => {
+      console.log(`[Socket] 🔌 Déconnecté : ${reason}`);
+    });
+
+    let warned = false;
     socket.on("connect_error", (err) => {
-      console.error("Socket erreur :", err.message);
+      if (!warned) {
+        warned = true;
+        console.warn(`[Socket] ⚠️ Erreur : ${err.message}`);
+      }
     });
 
-    socket.on("nouvelle-notification", (notification) => {
-      console.log("Notification reçue en direct :", notification);
-      ajouterEnDirect(notification);
+    /* ✅ Réception temps réel : toast + mise à jour du store via ajouterEnDirect */
+    socket.on("nouvelle-notification", (notification: NotificationApi) => {
+      console.log("[Socket] 📨 Notification reçue", notification);
+
+      /* 1. Toast immédiat */
+      toast.info(notification?.titre ?? "Nouvelle notification", {
+        description: notification?.message,
+        duration: 5000,
+      });
+
+      /* 2. ✅ Mise à jour du store (badge rouge + liste) */
+      useNotificationStore.getState().ajouterEnDirect(notification);
     });
 
     return () => {
+      socket.removeAllListeners();
       socket.disconnect();
+      socketRef.current = null;
     };
-  }, [token, ajouterEnDirect]);
+  }, [token, user?.id]);
+
+  return socketRef;
 }

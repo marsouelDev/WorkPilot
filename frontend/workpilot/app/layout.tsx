@@ -5,7 +5,7 @@ import { Geist } from "next/font/google";
 import { cn } from "@/lib/utils";
 import "@/styles/phone-input.css";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { Toaster } from "@/components/ui/sonner";
+import { ToasterProvider } from "@/app/components/toaster-provider";
 
 const geist = Geist({
   subsets: ["latin"],
@@ -29,7 +29,8 @@ export default function RootLayout({
     <html lang="fr" className={cn("font-sans", geist.variable)}>
       <body className="min-h-screen flex flex-col">
         <TooltipProvider>{children}</TooltipProvider>
-        <Toaster position="bottom-right" closeButton duration={2000} />{" "}
+
+        <ToasterProvider />
       </body>
     </html>
   );

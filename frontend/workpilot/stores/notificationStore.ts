@@ -32,8 +32,6 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
   },
 
   marquerLue: async (token, id) => {
-    /* Mise à jour optimiste immédiate sur interface */
-
     const etaitLue = get().notifications.find((n) => n.id === id)?.lue;
 
     set((state) => ({
@@ -105,11 +103,19 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
     }
   },
 
-  ajouterEnDirect: (notification) => {
-    set((state) => ({
-      notifications: [notification, ...state.notifications].slice(0, 50),
-      nonLues: notification.lue ? state.nonLues : state.nonLues + 1,
-    }));
+  /** Ajoute une notification (temps réel WebSocket ou autre) en tête de liste */
+  ajouterEnDirect: (notification: NotificationApi) => {
+    set((state) => {
+      /* Évite les doublons par ID */
+      if (state.notifications.some((n) => n.id === notification.id)) {
+        return state;
+      }
+
+      return {
+        notifications: [notification, ...state.notifications].slice(0, 50),
+        nonLues: notification.lue ? state.nonLues : state.nonLues + 1,
+      };
+    });
   },
 
   clearError: () => set({ error: null }),

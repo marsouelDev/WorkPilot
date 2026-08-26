@@ -4,6 +4,7 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+  
 }
 
 enum RoleGlobal {
@@ -47,40 +48,60 @@ enum TypeNotification {
   invitation_projet
   changement_role
   retrait_projet
+  membre_retire
   tache_assignee
   tache_terminee
+  tache_expiree
+  livrable_soumis
+  livrable_valide
+  livrable_rejete
+  pr_creee
+  pr_fusionnee
+  pr_rejetee
   systeme
 }
 
 enum StatutPullRequest {
   ouverte
-  approuvee
   rejetee
   fusionnee
 }
 
+enum StatutLivrable {
+  soumis
+  valide
+  rejete
+}
+
 
 model Utilisateur {
-  id            Int          @id @default(autoincrement())
-  nom           String
-  prenom        String
-  email         String       @unique
-  telephone     String?
-  motDePasse    String
-  roleGlobal    RoleGlobal   @default(membre)
-  statut        StatutCompte @default(en_attente_verification)
-  codeVerificationHache  String?
-  codeVerificationExpire DateTime?
-  githubUsername String?   @unique
-  githubToken    String?
-  githubLieAt    DateTime?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  projetsCrees    Projet[] @relation("ProjetsCrees")
-  tachesAssignees Tache[]  @relation("TachesAssignees")
+  id                         Int          @id @default(autoincrement())
+  nom                        String
+  prenom                     String
+  email                      String       @unique
+  telephone                  String?
+  motDePasse                 String
+  roleGlobal                 RoleGlobal   @default(membre)
+  statut                     StatutCompte @default(en_attente_verification)
+  codeVerificationHache      String?
+  codeVerificationExpire     DateTime?
+  actif                      Boolean      @default(true)
+  supprimeLe                 DateTime?
+  githubUsername             String?      @unique
+  githubToken                String?
+  githubRefreshToken         String?
+  githubTokenExpiresAt       DateTime?
+  githubRefreshTokenExpiresAt DateTime?
+  githubLieAt                DateTime?
+  createdAt                  DateTime     @default(now())
+  updatedAt                  DateTime     @updatedAt
+  projetsCrees    Projet[]        @relation("ProjetsCrees")
+  tachesAssignees Tache[]         @relation("TachesAssignees")
   membres         Membre[]
-  notifications Notification[]
-
+  notifications   Notification[]
+  prsAuteur       PullRequest[]   @relation("prs_auteur")
+  @@index([email])
+  @@index([roleGlobal])
   @@map("utilisateurs")
 }
 
@@ -89,14 +110,14 @@ model Projet {
   titre               String
   descriptionSommaire String    @db.Text
   depotGitUrl         String?   @unique
-  createurId Int
-  createur   Utilisateur @relation("ProjetsCrees", fields: [createurId], references: [id])
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createurId          Int
+  createur            Utilisateur @relation("ProjetsCrees", fields: [createurId], references: [id])
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
   cahierDesCharges CahierDesCharges?
   taches           Tache[]
   membres          Membre[]
-
+  @@index([createurId])
   @@map("projets")
 }
 
@@ -106,7 +127,6 @@ model CahierDesCharges {
   projet         Projet   @relation(fields: [projetId], references: [id], onDelete: Cascade)
   contenuGenere  String   @db.Text
   dateGeneration DateTime @default(now())
-
   @@map("cahiers_des_charges")
 }
 
@@ -124,23 +144,29 @@ model Tache {
   complexite         Complexite
   createdAt          DateTime      @default(now())
   updatedAt          DateTime      @updatedAt
-  assistanceIA       AssistanceIA?
-  pullRequests       PullRequest[]
+  assistanceIA   AssistanceIA?
+  pullRequests   PullRequest[]
+  livrableFinal  LivrableFinal?
+  @@index([projetId])
+  @@index([assigneeId])
+  @@index([statut])
+  @@index([echeance])
   @@map("taches")
 }
 
 model Membre {
-  id Int @id @default(autoincrement())
-  projetId      Int
-  utilisateurId Int
-  role          RoleProjet @default(developpeur)
-  dateAjout     DateTime   @default(now())
-  projet      Projet      @relation(fields: [projetId], references: [id], onDelete: Cascade)
-  utilisateur Utilisateur @relation(fields: [utilisateurId], references: [id], onDelete: Cascade)
-  brancheTravail   String?  
+  id               Int        @id @default(autoincrement())
+  projetId         Int
+  utilisateurId    Int
+  role             RoleProjet @default(developpeur)
+  dateAjout        DateTime   @default(now())
+  brancheTravail   String?
   dernierCommitSha String?
-
+  projet    Projet      @relation(fields: [projetId], references: [id], onDelete: Cascade)
+  utilisateur Utilisateur @relation(fields: [utilisateurId], references: [id], onDelete: Cascade)
   @@unique([projetId, utilisateurId])
+  @@index([utilisateurId])
+  @@index([projetId, role])
   @@map("membres")
 }
 
@@ -151,7 +177,6 @@ model AssistanceIA {
   messages  MessageIA[]
   createdAt DateTime    @default(now())
   updatedAt DateTime    @updatedAt
-
   @@map("conversations_ia")
 }
 
@@ -162,10 +187,9 @@ model MessageIA {
   role           RoleMessageIA
   contenu        String       @db.Text
   createdAt      DateTime     @default(now())
-
   @@index([conversationId, createdAt])
   @@map("messages_ia")
-}  
+}
 
 model Notification {
   id        Int              @id @default(autoincrement())
@@ -178,12 +202,12 @@ model Notification {
   projetId  Int?
   tacheId   Int?
   createdAt DateTime         @default(now())
-
   @@index([userId, lue])
   @@index([userId, createdAt])
+  @@index([projetId])
+  @@index([tacheId])
   @@map("notifications")
 }
-
 
 model PullRequest {
   id        Int               @id @default(autoincrement())
@@ -192,10 +216,26 @@ model PullRequest {
   url       String
   numero    Int?
   branche   String?
+  auteurId  Int?
+  auteur    Utilisateur?      @relation("prs_auteur", fields: [auteurId], references: [id])
   statut    StatutPullRequest @default(ouverte)
   creeParIA Boolean           @default(false)
   createdAt DateTime          @default(now())
   updatedAt DateTime          @updatedAt
-
+  @@index([tacheId])
+  @@index([statut])
+  @@index([auteurId])
   @@map("pull_requests")
+}
+
+model LivrableFinal {
+  id         Int            @id @default(autoincrement())
+  tacheId    Int            @unique
+  tache      Tache          @relation(fields: [tacheId], references: [id], onDelete: Cascade)
+  fichierUrl String
+  statut     StatutLivrable @default(soumis)
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+  @@index([statut])
+  @@map("livrables_finaux")
 }

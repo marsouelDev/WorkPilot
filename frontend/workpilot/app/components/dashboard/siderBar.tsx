@@ -10,10 +10,10 @@ import {
   Folder,
   LogOut,
   BellRing,
+  GitPullRequest,
+  type LucideIcon,
 } from "lucide-react";
-
 import { useAuthStore } from "@/stores/authStore";
-
 import {
   Sidebar,
   SidebarHeader,
@@ -30,7 +30,15 @@ import {
 const SIDEBAR_COLOR = "#6366F1";
 const SIDEBAR_DARK = "#4f46e5";
 
-const items = [
+type SidebarItem = {
+  title: string;
+  url: string;
+  icon: LucideIcon;
+  roles: string[];
+  matchPrefix?: string;
+};
+
+const items: SidebarItem[] = [
   {
     title: "Dashboard",
     url: "/dashboard",
@@ -48,11 +56,19 @@ const items = [
     url: "/projects/admin",
     icon: Folder,
     roles: ["admin"],
+    matchPrefix: "/projects",
   },
   {
     title: "Projects",
     url: "/projects/Users",
     icon: Folder,
+    roles: ["membre"],
+    matchPrefix: "/projects",
+  },
+  {
+    title: "Pull-Requests",
+    url: "/pull-requests",
+    icon: GitPullRequest,
     roles: ["membre"],
   },
   {
@@ -90,24 +106,13 @@ export default function AppSidebar() {
       className="bg-[#6366F1]!"
       style={
         {
-          /* Variable Tailwind v4 (fond) */
           "--sidebar": SIDEBAR_COLOR,
-
-          /* Variable Tailwind v3 (fond) */
           "--sidebar-background": SIDEBAR_COLOR,
-
-          /* Texte */
           "--sidebar-foreground": "#ffffff",
-
-          /* Survol + actif */
           "--sidebar-accent": "rgba(255, 255, 255, 0.12)",
           "--sidebar-accent-foreground": "#ffffff",
-
-          /* Primaire */
           "--sidebar-primary": SIDEBAR_DARK,
           "--sidebar-primary-foreground": "#ffffff",
-
-          /* Bordures */
           "--sidebar-border": "rgba(255, 255, 255, 0.18)",
           "--sidebar-ring": "#ffffff",
         } as React.CSSProperties
@@ -129,7 +134,6 @@ export default function AppSidebar() {
                 <span className="text-base font-bold text-white">
                   WorkPilot
                 </span>
-
                 <span className="text-xs text-white/70">
                   Gestion de projets
                 </span>
@@ -145,7 +149,12 @@ export default function AppSidebar() {
             <SidebarMenu>
               {filteredItems.map((item) => {
                 const Icon = item.icon;
-                const isActive = pathname === item.url;
+
+                /* Actif si préfixe matché, URL exacte ou sous-chemin */
+                const isActive = item.matchPrefix
+                  ? pathname.startsWith(item.matchPrefix)
+                  : pathname === item.url ||
+                    pathname.startsWith(`${item.url}/`);
 
                 return (
                   <SidebarMenuItem key={item.title + item.url}>
@@ -160,7 +169,6 @@ export default function AppSidebar() {
                       }
                     >
                       <Icon className="h-4 w-4 shrink-0" />
-
                       <span>{item.title}</span>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
@@ -184,7 +192,6 @@ export default function AppSidebar() {
                 <p className="truncate text-sm font-semibold text-white">
                   {user?.prenom} {user?.nom}
                 </p>
-
                 <p className="truncate text-xs text-white/70">
                   {user?.role === "admin" ? "Administrateur" : "Membre"}
                 </p>
@@ -201,7 +208,6 @@ export default function AppSidebar() {
               className="text-red-200 hover:bg-white/10! hover:text-red-100"
             >
               <LogOut className="h-4 w-4 shrink-0" />
-
               <span>Déconnexion</span>
             </SidebarMenuButton>
           </SidebarMenuItem>

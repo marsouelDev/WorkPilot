@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
@@ -10,14 +11,17 @@ import { EmailModule } from './email/email.module';
 import { AiModule } from './ai/ai.module';
 import { ProjectsModule } from './projects/projects.module';
 import { TasksModule } from './tasks/tasks.module';
-import { ScheduleModule } from '@nestjs/schedule';
 import { AssistanceIaModule } from './assistance-ia/assistance-ia.module';
 import { NotificationModule } from './notification/notification.module';
-import { CryptoService } from './crypto/crypto.service';
 import { CryptoModule } from './crypto/crypto.module';
-import { GithubService } from './github/github.service';
+import { CryptoService } from './crypto/crypto.service';
 import { GithubModule } from './github/github.module';
+import { GithubService } from './github/github.service';
 import { PullRequestsModule } from './pull-requests/pull-requests.module';
+import { LivrableFinalService } from './livrable-final/livrable-final.service';
+import { LivrableFinalModule } from './livrable-final/livrable-final.module';
+import { UploadService } from './upload/upload.service';
+import { UploadModule } from './upload/upload.module';
 
 @Module({
   imports: [
@@ -38,8 +42,16 @@ import { PullRequestsModule } from './pull-requests/pull-requests.module';
     CryptoModule,
     GithubModule,
     PullRequestsModule,
+    LivrableFinalModule,
+    UploadModule,
   ],
   controllers: [AppController],
-  providers: [AppService, CryptoService, GithubService],
+  providers: [
+    AppService,
+    CryptoService,
+    GithubService,
+    LivrableFinalService,
+    UploadService,
+  ],
 })
 export class AppModule {}

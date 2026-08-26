@@ -85,6 +85,12 @@
   --sidebar-ring: oklch(0.708 0 0);
   --primary: #6366f1;
   --primary-foreground: #ffffff;
+  /* Tokens de design cohérents */
+  --bg-base: #0a0a0f (fond principal) --bg-surface: #12121a (surfaces/cartes)
+    --bg-elevated: #1a1a24 (éléments élevés) --border: #27272f
+    (bordures subtiles) --text-primary: #fafafa --text-secondary: #a1a1aa
+    --text-muted: #52525b --accent: #8b5cf6 (violet) --accent-soft: #8b5cf620
+    --success: #10b981 --danger: #ef4444 --warning: #f59e0b;
 }
 
 .dark {
@@ -216,4 +222,51 @@
   .wp-status-dot-pulse {
     animation: none !important;
   }
+}
+
+/*SCROLLBAR STYLE VS CODE */
+
+.wp-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+.wp-scrollbar:hover {
+  scrollbar-color: rgba(121, 121, 121, 0.4) transparent;
+}
+
+.wp-scrollbar::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.wp-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.wp-scrollbar::-webkit-scrollbar-thumb {
+  background-color: transparent;
+  border-radius: 10px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.wp-scrollbar:hover::-webkit-scrollbar-thumb {
+  background-color: rgba(121, 121, 121, 0.4);
+}
+
+.wp-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(121, 121, 121, 0.7);
+}
+
+.wp-scrollbar::-webkit-scrollbar-thumb:active {
+  background-color: rgba(121, 121, 121, 0.9);
+}
+
+.wp-scrollbar::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+.wp-scrollbar::-webkit-scrollbar-button {
+  display: none;
 }

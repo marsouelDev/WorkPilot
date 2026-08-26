@@ -4,13 +4,20 @@ import Link from "next/link";
 
 import { useRouter } from "next/navigation";
 
-import { ArrowLeft, FileText, ListTodo, Users } from "lucide-react";
+import {
+  ArrowLeft,
+  BookOpenText,
+  GitBranch,
+  ListTodo,
+  Users,
+  FileText,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 
 interface ProjectNavigationProps {
   projetId: number;
-  active: "cahier-des-charges" | "tasks" | "members";
+  active: "cahier-des-charges" | "tasks" | "members" | "branches" | "livrables";
   disabled?: boolean;
 }
 
@@ -39,6 +46,18 @@ export default function Navigation({
       label: "Utilisateurs",
       href: `/projects/${projetId}/membres`,
       icon: Users,
+    },
+    {
+      key: "branches" as const,
+      label: "Branches",
+      href: `/projects/${projetId}/branches`,
+      icon: GitBranch,
+    },
+    {
+      key: "livrables" as const,
+      label: "Livrables",
+      href: `/projects/${projetId}/livrables`,
+      icon: BookOpenText,
     },
   ];
 

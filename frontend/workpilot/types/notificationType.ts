@@ -1,8 +1,8 @@
 export interface NotificationApi {
   id: number;
-  type: string;
   titre: string;
   message: string;
+  type: string;
   lue: boolean;
   projetId: number | null;
   tacheId: number | null;
@@ -24,6 +24,6 @@ export interface NotificationState {
   marquerLue: (token: string, id: number) => Promise<void>;
   toutMarquerLues: (token: string) => Promise<void>;
   supprimer: (token: string, id: number) => Promise<void>;
-  ajouterEnDirect: (notification: NotificationApi) => void;
+  ajouterEnDirect: (notification: NotificationApi) => void; 
   clearError: () => void;
 }

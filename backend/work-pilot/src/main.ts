@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
+import { IoAdapter } from '@nestjs/platform-socket.io';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
@@ -11,7 +12,11 @@ async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
   app.set('trust proxy', 'loopback');
-  app.setGlobalPrefix('api');
+
+  /* Exclure /socket.io du prefix global pour Socket.IO */
+  app.setGlobalPrefix('api', {
+    exclude: ['/socket.io/(.*)'],
+  });
 
   app.useGlobalPipes(
     new ValidationPipe({
@@ -23,31 +28,24 @@ async function bootstrap() {
 
   app.use(cookieParser());
 
-  // Sécurisation des en-têtes HTTP
+  /* Adaptateur WebSocket OBLIGATOIRE */
+  app.useWebSocketAdapter(new IoAdapter(app));
+
   app.use(
     helmet({
       crossOriginOpenerPolicy: false,
       crossOriginEmbedderPolicy: false,
       contentSecurityPolicy: false,
-      frameguard: {
-        action: 'deny',
-      },
+      frameguard: { action: 'deny' },
       hidePoweredBy: true,
       hsts:
         process.env.NODE_ENV === 'production'
-          ? {
-              maxAge: 31536000,
-              includeSubDomains: true,
-              preload: true,
-            }
+          ? { maxAge: 31536000, includeSubDomains: true, preload: true }
           : false,
-      referrerPolicy: {
-        policy: 'no-referrer',
-      },
+      referrerPolicy: { policy: 'no-referrer' },
     }),
   );
 
-  // Configuration CORS
   app.enableCors({
     origin: [
       'http://localhost:3000',
@@ -59,21 +57,17 @@ async function bootstrap() {
     allowedHeaders: ['Content-Type', 'Authorization'],
   });
 
-  // Configuration de Swagger
   const swaggerConfig = new DocumentBuilder()
     .setTitle('WorkPilot API')
     .setDescription("Documentation officielle de l'API WorkPilot")
     .setVersion('1.0.0')
-    // Authentification JWT (Bearer Token)
     .addBearerAuth()
     .build();
 
   const document = SwaggerModule.createDocument(app, swaggerConfig);
-
   SwaggerModule.setup('docs', app, document);
 
-  const port = Number(process.env.PORT) || 3000;
-
+  const port = Number(process.env.PORT) || 3001;
   await app.listen(port, '0.0.0.0');
 }
 
