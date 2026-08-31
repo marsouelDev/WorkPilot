@@ -22,6 +22,7 @@ import {
 import { useAuthStore } from "@/stores/authStore";
 import { useNotificationStore } from "@/stores/notificationStore";
 import { useNotificationSocket } from "@/hooks/useNotificationSocket";
+import LanguageSelector from "@/app/components/lang/LanguageSelector";
 
 interface NavProps {
   children?: React.ReactNode;
@@ -38,7 +39,40 @@ function tempsRelatif(date: string): string {
   if (heures < 24) return `il y a ${heures} h`;
 
   const jours = Math.floor(heures / 24);
-  return `il y a ${jours} j`;
+  if (jours < 7) return `il y a ${jours} j`;
+
+  return new Date(date).toLocaleDateString("fr-FR", {
+    day: "2-digit",
+    month: "short",
+  });
+}
+
+const SEGMENT_LABELS: Record<string, string> = {
+  dashboard: "Dashboard",
+  projects: "Projets",
+  users: "Utilisateurs",
+  profile: "Profil",
+  tasks: "Tâches",
+  taches: "Tâches",
+  notifications: "Notifications",
+  "cahier-des-charges": "Cahier des charges",
+  "create-project": "Créer un projet",
+  admin: "Administration",
+  integrations: "Intégrations",
+};
+
+const HIDDEN_SEGMENTS = new Set(["projects", "users", "ia"]);
+
+function getSegmentLabel(segment: string): string {
+  const lower = segment.toLowerCase();
+  if (SEGMENT_LABELS[lower]) return SEGMENT_LABELS[lower];
+  return segment.replace(/-/g, " ").replace(/\b\w/g, (l) => l.toUpperCase());
+}
+
+function isVisibleSegment(segment: string): boolean {
+  if (HIDDEN_SEGMENTS.has(segment.toLowerCase())) return false;
+  if (/^\d+$/.test(segment)) return false;
+  return true;
 }
 
 export default function Nav({ children }: NavProps) {
@@ -46,16 +80,12 @@ export default function Nav({ children }: NavProps) {
   const pathname = usePathname();
 
   const { user, token, hasHydrated, isLoading, logout } = useAuthStore();
-
   const { notifications, nonLues, charger, marquerLue, toutMarquerLues } =
     useNotificationStore();
 
   useNotificationSocket();
 
-  useEffect(() => {
-    if (token) charger(token);
-  }, [token, charger]);
-
+  /* ===== État du dropdown notifications (hover) ===== */
   const [notifOpen, setNotifOpen] = useState(false);
   const closeTimer = useRef<number | null>(null);
 
@@ -64,7 +94,6 @@ export default function Nav({ children }: NavProps) {
       window.clearTimeout(closeTimer.current);
       closeTimer.current = null;
     }
-
     setNotifOpen(true);
   };
 
@@ -72,12 +101,12 @@ export default function Nav({ children }: NavProps) {
     if (closeTimer.current) {
       window.clearTimeout(closeTimer.current);
     }
-
     closeTimer.current = window.setTimeout(() => {
       setNotifOpen(false);
     }, 200);
   };
 
+  /* Nettoyage du timer au démontage */
   useEffect(() => {
     return () => {
       if (closeTimer.current) {
@@ -87,11 +116,11 @@ export default function Nav({ children }: NavProps) {
   }, []);
 
   useEffect(() => {
-    if (!hasHydrated) {
-      return;
-    }
+    if (token) charger(token);
+  }, [token, charger]);
 
-    if (!token) {
+  useEffect(() => {
+    if (hasHydrated && !token) {
       router.push("/login");
     }
   }, [hasHydrated, token, router]);
@@ -103,106 +132,91 @@ export default function Nav({ children }: NavProps) {
 
   const handleClickNotification = (id: number, projetId: number | null) => {
     if (token) marquerLue(token, id);
-
     setNotifOpen(false);
-
-    if (projetId) {
-      router.push(`/projects/${projetId}/cahier-des-charges`);
-    } else {
-      router.push("/notifications");
-    }
-  };
-
-  const getSegmentLabel = (segment: string) => {
-    const labels: Record<string, string> = {
-      dashboard: "Dashboard",
-      projects: "Projets",
-      users: "Utilisateurs",
-      profile: "Profil",
-      tasks: "Tâches",
-      taches: "Tâches",
-      notifications: "Notifications",
-      "cahier-des-charges": "Cahier des charges",
-      "create-project": "Créer un projet",
-      admin: "Administration",
-    };
-
-    return (
-      labels[segment.toLowerCase()] ??
-      segment
-        .replace(/-/g, " ")
-        .replace(/\b\w/g, (letter) => letter.toUpperCase())
+    router.push(
+      projetId ? `/projects/${projetId}/cahier-des-charges` : "/notifications",
     );
   };
 
-  const segments = pathname.split("/").filter(Boolean);
+  const handleMarkAllRead = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (token) toutMarquerLues(token);
+  };
 
-  /* ✅ Segments techniques masqués (insensible à la casse) */
-  const HIDDEN_SEGMENTS = new Set(["projects", "users", "ia"]);
+  /* ===== Breadcrumb ===== */
+  const visibleSegments = pathname
+    .split("/")
+    .filter(Boolean)
+    .filter(isVisibleSegment);
 
-  /* ✅ Masque : projects, Users, ia + TOUS les IDs numériques (12, 29...) */
-  const visibleSegments = segments.filter((segment) => {
-    const lower = segment.toLowerCase();
+  const lastSegment =
+    visibleSegments.length > 0
+      ? getSegmentLabel(visibleSegments[visibleSegments.length - 1])
+      : "Dashboard";
 
-    /* Segments techniques */
-    if (HIDDEN_SEGMENTS.has(lower)) return false;
-
-    /* IDs numériques (projetId, taskId...) */
-    if (/^\d+$/.test(segment)) return false;
-
-    return true;
-  });
-
+  /* ===== États de chargement ===== */
   if (!hasHydrated || isLoading) {
     return (
       <header className="sticky top-0 z-40 flex h-16 items-center justify-between border-b bg-background/80 px-4 backdrop-blur-md">
         <Skeleton className="h-5 w-32" />
-
         <Skeleton className="h-9 w-9 rounded-full" />
       </header>
     );
   }
 
-  if (!token || !user) {
-    return null;
-  }
+  if (!token || !user) return null;
 
   return (
     <header className="sticky top-0 z-40 flex h-16 items-center justify-between border-b bg-background/80 px-4 backdrop-blur-md">
       <div className="flex min-w-0 items-center gap-2">
         {children}
 
-        <nav className="hidden min-w-0 items-center gap-2 text-sm md:flex">
-          {visibleSegments.map((segment, index) => (
-            <div
-              key={`${segment}-${index}`}
-              className="flex min-w-0 items-center gap-2"
-            >
-              <span
-                className={
-                  index === visibleSegments.length - 1
-                    ? "truncate font-semibold text-foreground"
-                    : "truncate text-muted-foreground"
-                }
+        <nav
+          className="hidden min-w-0 items-center gap-2 text-sm md:flex"
+          aria-label="Breadcrumb"
+        >
+          {visibleSegments.map((segment, index) => {
+            const isLast = index === visibleSegments.length - 1;
+            return (
+              <div
+                key={`${segment}-${index}`}
+                className="flex min-w-0 items-center gap-2"
               >
-                {getSegmentLabel(segment)}
-              </span>
-            </div>
-          ))}
+                {index > 0 && (
+                  <span className="text-muted-foreground/50">/</span>
+                )}
+                <span
+                  className={
+                    isLast
+                      ? "truncate font-semibold text-foreground"
+                      : "truncate text-muted-foreground"
+                  }
+                  aria-current={isLast ? "page" : undefined}
+                >
+                  {getSegmentLabel(segment)}
+                </span>
+              </div>
+            );
+          })}
         </nav>
 
         <div className="min-w-0 truncate text-sm font-semibold md:hidden">
-          {visibleSegments.length > 0
-            ? getSegmentLabel(visibleSegments[visibleSegments.length - 1])
-            : "Dashboard"}
+          {lastSegment}
         </div>
       </div>
 
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2 sm:gap-3">
+        {/* =====  BOUTON DE TRADUCTION ===== */}
+        <LanguageSelector />
+
+        {/* ===== Séparateur visuel ===== */}
+        <div className="h-6 w-px bg-border" aria-hidden="true" />
+
+        {/* ===== NOTIFICATIONS ===== */}
         <DropdownMenu
           open={notifOpen}
-          onOpenChange={(next) => {
-            if (!next) {
+          onOpenChange={(open) => {
+            if (!open) {
               setNotifOpen(false);
             }
           }}
@@ -210,21 +224,16 @@ export default function Nav({ children }: NavProps) {
           <DropdownMenuTrigger
             onMouseEnter={openNotifications}
             onMouseLeave={scheduleCloseNotifications}
-            onClick={() => {
-              setNotifOpen(false);
-              router.push("/notifications");
-            }}
             render={
               <Button
                 variant="ghost"
                 size="icon"
                 className="relative"
-                title="Notifications"
+                aria-label={`Notifications${nonLues > 0 ? ` (${nonLues} non lues)` : ""}`}
               />
             }
           >
             <Bell className="h-4 w-4" />
-
             {nonLues > 0 && (
               <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
                 {nonLues > 9 ? "9+" : nonLues}
@@ -240,13 +249,12 @@ export default function Nav({ children }: NavProps) {
           >
             <div className="flex items-center justify-between px-3 py-2">
               <p className="text-sm font-semibold">Notifications</p>
-
               {nonLues > 0 && (
                 <Button
                   variant="ghost"
                   size="sm"
                   className="h-7 gap-1.5 text-xs text-muted-foreground"
-                  onClick={() => token && toutMarquerLues(token)}
+                  onClick={handleMarkAllRead}
                 >
                   <CheckCheck className="h-3.5 w-3.5" />
                   Tout marquer lu
@@ -259,47 +267,46 @@ export default function Nav({ children }: NavProps) {
             {notifications.length === 0 ? (
               <div className="flex flex-col items-center gap-2 px-3 py-8 text-center">
                 <Inbox className="h-6 w-6 text-muted-foreground" />
-
                 <p className="text-sm text-muted-foreground">
                   Aucune notification
                 </p>
               </div>
             ) : (
               <div className="max-h-80 overflow-y-auto">
-                {notifications.slice(0, 4).map((notification) => (
+                {notifications.slice(0, 4).map((n) => (
                   <div
-                    key={notification.id}
-                    onClick={() =>
-                      handleClickNotification(
-                        notification.id,
-                        notification.projetId,
-                      )
-                    }
-                    className="flex cursor-pointer items-start gap-3 px-3 py-3 transition hover:bg-muted/60"
+                    key={n.id}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => handleClickNotification(n.id, n.projetId)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        handleClickNotification(n.id, n.projetId);
+                      }
+                    }}
+                    className="flex cursor-pointer items-start gap-3 px-3 py-3 transition hover:bg-muted/60 focus:bg-muted/60 focus:outline-none"
                   >
                     <span
                       className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${
-                        notification.lue ? "bg-transparent" : "bg-[#6366F1]"
+                        n.lue ? "bg-transparent" : "bg-[#6366F1]"
                       }`}
+                      aria-hidden="true"
                     />
-
                     <div className="min-w-0 flex-1">
                       <p
                         className={`truncate text-sm ${
-                          notification.lue
+                          n.lue
                             ? "font-normal text-muted-foreground"
                             : "font-semibold text-foreground"
                         }`}
                       >
-                        {notification.titre}
+                        {n.titre}
                       </p>
-
                       <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
-                        {notification.message}
+                        {n.message}
                       </p>
-
                       <p className="mt-1 text-[10px] text-muted-foreground/70">
-                        {tempsRelatif(notification.createdAt)}
+                        {tempsRelatif(n.createdAt)}
                       </p>
                     </div>
                   </div>
@@ -328,7 +335,6 @@ export default function Nav({ children }: NavProps) {
           <p className="text-sm font-semibold leading-tight">
             {user.prenom} {user.nom}
           </p>
-
           <p className="text-xs text-muted-foreground">
             {user.role === "admin" ? "Administrateur" : "Membre"}
           </p>
@@ -340,14 +346,14 @@ export default function Nav({ children }: NavProps) {
               <Button
                 variant="ghost"
                 className="h-auto gap-1.5 rounded-full p-1 hover:bg-muted"
+                aria-label="Menu utilisateur"
               />
             }
           >
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#6366F1] text-sm font-semibold text-primary-foreground">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#6366F1] text-sm font-semibold text-white">
               {user.prenom?.charAt(0).toUpperCase()}
               {user.nom?.charAt(0).toUpperCase()}
             </div>
-
             <ChevronDown className="h-4 w-4 text-muted-foreground" />
           </DropdownMenuTrigger>
 
@@ -356,7 +362,6 @@ export default function Nav({ children }: NavProps) {
               <p className="text-sm font-medium">
                 {user.prenom} {user.nom}
               </p>
-
               <p className="text-xs text-muted-foreground">
                 {user.role === "admin" ? "Administrateur" : "Membre"}
               </p>

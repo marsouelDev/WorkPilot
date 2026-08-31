@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
+import { toast } from "sonner";
 import {
   AlertCircle,
   Bot,
@@ -14,6 +15,7 @@ import {
   Play,
   Send,
   Sparkles,
+  Upload,
   User,
   X,
 } from "lucide-react";
@@ -53,9 +55,10 @@ const T = {
   borderStrong: "#3f3f46",
   textPrimary: "#fafafa",
   textSecondary: "#a1a1aa",
-  textIA:"#B95F00",
+  textIA: "#B95F00",
   textMuted: "#52525b",
   accent: "#8b5cf6",
+  accentHover: "#7c3aed",
   accentSoft: "rgba(139, 92, 246, 0.15)",
   accentBorder: "rgba(139, 92, 246, 0.3)",
   success: "#10b981",
@@ -70,16 +73,59 @@ const T = {
   aiBubbleBorder: "#27272f",
   codeBg: "#0b0b12",
   codeHeader: "#15151e",
-  placeholder:"#F8F9FF"
 } as const;
 
 const SUGGESTIONS = [
   "Résume-moi cette tâche en quelques points",
   "Propose un plan d'action pour avancer",
   "Quels sont les points de vigilance ?",
+  "Analyse cette capture d'écran d'erreur",
 ];
 const EMPTY_MESSAGES: MessageIA[] = [];
-const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
+const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5 Mo
+const MAX_IMAGES = 4;
+
+const MIME_ACCEPTES = [
+  "image/png",
+  "image/jpeg",
+  "image/jpg",
+  "image/webp",
+  "image/gif",
+  "image/avif",
+  "image/svg+xml",
+  "image/x-icon",
+  "image/vnd.microsoft.icon",
+];
+
+async function uploadImageToCloudinary(
+  file: File,
+  token: string,
+): Promise<{ url: string; publicId: string }> {
+  const formData = new FormData();
+  formData.append("image", file);
+
+  const res = await fetch(`${API_URL}/upload/image`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(
+      (err as { message?: string }).message ?? `HTTP ${res.status}`,
+    );
+  }
+
+  return (await res.json()) as { url: string; publicId: string };
+}
+
+interface AttachedImage {
+  url: string;
+  localId: string;
+  uploading: boolean;
+  fileName: string;
+}
 
 interface CodeBlockProps {
   className?: string;
@@ -127,9 +173,11 @@ function CodeBlock({
     try {
       await navigator.clipboard.writeText(code);
       setCopied(true);
+      toast.success("Code copié");
       window.setTimeout(() => setCopied(false), 2000);
     } catch (error) {
-      console.error("Impossible de copier le code :", error);
+      toast.error("Impossible de copier le code");
+      console.error(error);
     }
   };
 
@@ -140,7 +188,7 @@ function CodeBlock({
     try {
       const normalizedPath = normalizeApplyPath(filePath, projectRoot);
       if (!normalizedPath) {
-        console.warn("[CodeBlock] Path vide après normalisation :", filePath);
+        toast.error("Chemin invalide");
         return;
       }
 
@@ -148,8 +196,6 @@ function CodeBlock({
         projectRoot === "/"
           ? `/${normalizedPath}`
           : `${projectRoot}/${normalizedPath}`;
-
-      console.log(`[CodeBlock] Apply : ${filePath} → ${absolutePath}`);
 
       const lastSlash = absolutePath.lastIndexOf("/");
       if (lastSlash > 0) {
@@ -160,9 +206,10 @@ function CodeBlock({
 
       await wc.fs.writeFile(absolutePath, code, "utf-8");
       setApplied(true);
+      toast.success(`Fichier appliqué : ${filePath}`);
       onApplied?.();
-    } catch (error) {
-      console.error("[CodeBlock] apply error:", error);
+    } catch {
+      toast.error("Erreur lors de l'application du fichier");
     } finally {
       setApplying(false);
     }
@@ -382,9 +429,9 @@ function IaMessageContent({
             </ol>
           ),
           li: ({ children }) => <li className="pl-1">{children}</li>,
-          code: ({ className, children }) => (
+          code: ({ className: cls, children }) => (
             <CodeBlock
-              className={className}
+              className={cls}
               wc={wc}
               projectRoot={projectRoot}
               onApplied={onApplied}
@@ -504,6 +551,46 @@ function Avatar({ variant }: { variant: "user" | "assistant" }) {
   );
 }
 
+function ImageGrid({ images }: { images: string[] }) {
+  if (images.length === 0) return null;
+
+  const cols =
+    images.length === 1
+      ? "grid-cols-1 max-w-xs"
+      : images.length === 2
+        ? "grid-cols-2 max-w-sm"
+        : "grid-cols-2 max-w-md";
+
+  return (
+    <div className={`mb-3 grid gap-2 ${cols}`}>
+      {images.map((url, i) => (
+        <a
+          key={i}
+          href={url}
+          target="_blank"
+          rel="noreferrer"
+          className="group relative block overflow-hidden rounded-lg border transition hover:opacity-90"
+          style={{ borderColor: T.border }}
+        >
+          <Image
+            src={url}
+            alt={`Image jointe ${i + 1}`}
+            width={300}
+            height={200}
+            className="h-full w-full object-cover"
+          />
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/0 transition group-hover:bg-black/30">
+            <Upload
+              className="h-5 w-5 text-white opacity-0 transition group-hover:opacity-100"
+              strokeWidth={2}
+            />
+          </div>
+        </a>
+      ))}
+    </div>
+  );
+}
+
 export default function AssistanceIaChat({
   taskId,
   wc,
@@ -521,9 +608,12 @@ export default function AssistanceIaChat({
   } = useAssistanceIaStore();
 
   const [message, setMessage] = useState("");
-  const [attachedImages, setAttachedImages] = useState<string[]>([]);
+  const [attachedImages, setAttachedImages] = useState<AttachedImage[]>([]);
   const [isSendingLocal, setIsSendingLocal] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const viewportRef = useRef<HTMLDivElement>(null);
 
   const [localMessagesStore, setLocalMessagesStore] = useState<
     Record<number, MessageIA[]>
@@ -558,36 +648,84 @@ export default function AssistanceIaChat({
     return e.includes("attribu") || e.includes("assign") || e.includes("accès");
   }, [error]);
 
-  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(event.target.files ?? []);
-    if (files.length === 0) return;
+  const isMimeAccepte = (file: File): boolean =>
+    MIME_ACCEPTES.includes(file.type);
 
-    files.forEach((file) => {
-      if (!file.type.startsWith("image/")) {
-        console.warn("Fichier ignoré (pas une image) :", file.name);
-        return;
+  const handleFileChange = async (
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const files = Array.from(event.target.files ?? []);
+    if (files.length === 0 || !token) return;
+
+    const remainingSlots = MAX_IMAGES - attachedImages.length;
+    const filesToProcess = files.slice(0, remainingSlots);
+
+    if (files.length > remainingSlots) {
+      toast.error(`Maximum ${MAX_IMAGES} images par message`);
+    }
+
+    if (filesToProcess.length === 0) {
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+
+    setIsUploading(true);
+
+    for (const file of filesToProcess) {
+      if (!isMimeAccepte(file)) {
+        toast.error(
+          `"${file.name}" : format non supporté. PNG, JPG, WEBP, GIF, AVIF, SVG ou ICO.`,
+        );
+        continue;
       }
       if (file.size > MAX_IMAGE_SIZE) {
-        console.warn("Image trop volumineuse :", file.name);
-        return;
+        toast.error(`"${file.name}" dépasse 5 Mo`);
+        continue;
       }
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const result = e.target?.result;
-        if (typeof result === "string") {
-          setAttachedImages((prev) => [...prev, result]);
-        }
-      };
-      reader.readAsDataURL(file);
-    });
 
-    if (fileInputRef.current) {
-      fileInputRef.current.value = "";
+      const localId = `local-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+      const previewUrl = URL.createObjectURL(file);
+      setAttachedImages((prev) => [
+        ...prev,
+        {
+          url: previewUrl,
+          localId,
+          uploading: true,
+          fileName: file.name,
+        },
+      ]);
+
+      try {
+        const { url } = await uploadImageToCloudinary(file, token);
+        URL.revokeObjectURL(previewUrl);
+        setAttachedImages((prev) =>
+          prev.map((img) =>
+            img.localId === localId ? { ...img, url, uploading: false } : img,
+          ),
+        );
+      } catch (err) {
+        URL.revokeObjectURL(previewUrl);
+        setAttachedImages((prev) =>
+          prev.filter((img) => img.localId !== localId),
+        );
+        const msg = (err as Error).message;
+        if (msg.includes("403") || msg.includes("Forbidden")) {
+          toast.error(
+            "Service d'upload temporairement indisponible. Réessaie dans quelques instants.",
+          );
+        } else {
+          toast.error(`Upload impossible : ${msg}`);
+        }
+      }
     }
+
+    setIsUploading(false);
+    if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
-  const removeImage = (index: number) => {
-    setAttachedImages((prev) => prev.filter((_, i) => i !== index));
+  const removeImage = (localId: string) => {
+    setAttachedImages((prev) => prev.filter((img) => img.localId !== localId));
   };
 
   useEffect(() => {
@@ -605,21 +743,36 @@ export default function AssistanceIaChat({
     return () => window.clearTimeout(timer);
   }, [error, isAccessError, clearError]);
 
+  /* NOUVEAU : Scroll automatique vers le bas quand les messages changent */
+  useEffect(() => {
+    if (allMessages.length === 0 || isLoadingTask) return;
+
+    /* Petit délai pour laisser le DOM se rendre */
+    const timer = window.setTimeout(() => {
+      if (viewportRef.current) {
+        viewportRef.current.scrollTop = viewportRef.current.scrollHeight;
+      }
+    }, 100);
+
+    return () => window.clearTimeout(timer);
+  }, [allMessages, isLoadingTask]);
+
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const contenu = message.trim();
-    if ((!contenu && attachedImages.length === 0) || !token || isSending)
-      return;
 
-    let contenuFinal = contenu;
-    if (attachedImages.length > 0) {
-      const imagesMarkdown = attachedImages
-        .map((img, i) => `![Image ${i + 1}](${img})`)
-        .join("\n\n");
-      contenuFinal = contenu
-        ? `${contenu}\n\n${imagesMarkdown}`
-        : imagesMarkdown;
+    const hasPendingUploads = attachedImages.some((img) => img.uploading);
+    if (hasPendingUploads) {
+      toast.error("Attends la fin de l'upload des images");
+      return;
     }
+
+    const cloudinaryUrls = attachedImages
+      .filter((img) => !img.uploading && /^https:\/\/[^/]+\./.test(img.url))
+      .map((img) => img.url);
+
+    if ((!contenu && cloudinaryUrls.length === 0) || !token || isSending)
+      return;
 
     setMessage("");
     setAttachedImages([]);
@@ -629,7 +782,8 @@ export default function AssistanceIaChat({
       id: Date.now(),
       conversationId: 0,
       role: "utilisateur",
-      contenu: contenuFinal,
+      contenu,
+      images: cloudinaryUrls,
       createdAt: new Date().toISOString(),
     };
     addLocalMessage(userMsg);
@@ -643,11 +797,8 @@ export default function AssistanceIaChat({
           const context = await buildProjectContext(wc, projectRoot);
           projectStructure = context.structure;
           relevantFiles = context.relevantFiles;
-          console.log(
-            `[IA] Contexte : ${relevantFiles.length} fichiers, ${projectStructure.split("\n").length} lignes`,
-          );
-        } catch (error) {
-          console.warn("[IA] Contexte non disponible :", error);
+        } catch (err) {
+          console.warn("[IA] Contexte non disponible :", err);
         }
       }
 
@@ -658,7 +809,8 @@ export default function AssistanceIaChat({
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          message: contenuFinal,
+          message: contenu,
+          images: cloudinaryUrls,
           projectStructure,
           relevantFiles,
         }),
@@ -666,7 +818,9 @@ export default function AssistanceIaChat({
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        throw new Error(err.message ?? `Erreur HTTP ${res.status}`);
+        throw new Error(
+          (err as { message?: string }).message ?? `Erreur HTTP ${res.status}`,
+        );
       }
 
       const data = await res.json();
@@ -676,8 +830,9 @@ export default function AssistanceIaChat({
       if (parsed.actions.length > 0) {
         onRefresh?.();
       }
-    } catch (error) {
-      console.error("Erreur envoi message IA :", error);
+    } catch (err) {
+      console.error("Erreur envoi message IA :", err);
+      toast.error((err as Error).message);
       removeLastLocalMessage();
     } finally {
       setIsSendingLocal(false);
@@ -690,6 +845,12 @@ export default function AssistanceIaChat({
       event.currentTarget.form?.requestSubmit();
     }
   };
+
+  const submitDisabled =
+    (!message.trim() && attachedImages.length === 0) ||
+    isSending ||
+    isUploading ||
+    !token;
 
   if (isAccessError) {
     return (
@@ -756,8 +917,13 @@ export default function AssistanceIaChat({
           from { opacity: 0; transform: translateY(-8px); }
           to   { opacity: 1; transform: translateY(0); }
         }
+        @keyframes wp-pulse-border {
+          0%, 100% { border-color: rgba(139, 92, 246, 0.3); }
+          50%      { border-color: rgba(139, 92, 246, 0.7); }
+        }
         .wp-message-in { animation: wp-message-in .3s ease-out both; }
         .wp-error-in   { animation: wp-error-in .25s ease-out both; }
+        .wp-uploading  { animation: wp-pulse-border 1.5s ease-in-out infinite; }
       `}</style>
 
       {error && (
@@ -783,7 +949,7 @@ export default function AssistanceIaChat({
       <div className="min-h-0 flex-1">
         <MessageScrollerProvider autoScroll defaultScrollPosition="end">
           <MessageScroller className="h-full">
-            <MessageScrollerViewport>
+            <MessageScrollerViewport ref={viewportRef}>
               <MessageScrollerContent className="flex min-h-full flex-col gap-5 p-4">
                 {allMessages.length === 0 && (
                   <MessageScrollerItem messageId="welcome-message">
@@ -811,8 +977,9 @@ export default function AssistanceIaChat({
                         style={{ color: T.textSecondary }}
                       >
                         Je suis WorkPilot AI. Pose-moi une question sur cette
-                        tâche. J&apos;ai accès au projet et peux créer/modifier
-                        des fichiers directement.
+                        tâche ou joins une capture d&apos;écran. J&apos;ai accès
+                        au projet et peux créer/modifier des fichiers
+                        directement.
                       </p>
                       <div className="mt-6 flex max-w-md flex-wrap justify-center gap-2">
                         {SUGGESTIONS.map((suggestion) => (
@@ -849,8 +1016,9 @@ export default function AssistanceIaChat({
 
                 {allMessages.map((msg: MessageIA) => {
                   const isUser = msg.role === "utilisateur";
-
                   if (msg.role === "systeme") return null;
+
+                  const msgImages = msg.images ?? [];
 
                   return (
                     <MessageScrollerItem
@@ -882,6 +1050,10 @@ export default function AssistanceIaChat({
                                   }
                             }
                           >
+                            {isUser && msgImages.length > 0 && (
+                              <ImageGrid images={msgImages} />
+                            )}
+
                             {isUser ? (
                               <div
                                 className="whitespace-pre-wrap text-[13px] leading-relaxed"
@@ -895,21 +1067,6 @@ export default function AssistanceIaChat({
                                         {children}
                                       </p>
                                     ),
-                                    img: ({ src, alt }) => {
-                                      if (!src || typeof src !== "string")
-                                        return null;
-                                      return (
-                                        <Image
-                                          src={src}
-                                          alt={alt ?? "Image jointe"}
-                                          width={400}
-                                          height={300}
-                                          unoptimized={src.startsWith("data:")}
-                                          className="my-2 max-w-full rounded-lg border"
-                                          style={{ borderColor: T.border }}
-                                        />
-                                      );
-                                    },
                                   }}
                                 >
                                   {msg.contenu}
@@ -979,6 +1136,24 @@ export default function AssistanceIaChat({
         </MessageScrollerProvider>
       </div>
 
+      {isUploading && (
+        <div
+          className="flex items-center gap-2 border-t px-3 py-2"
+          style={{
+            borderColor: T.accentBorder,
+            backgroundColor: T.accentSoft,
+          }}
+        >
+          <Upload
+            className="h-3.5 w-3.5 animate-pulse"
+            style={{ color: T.accent }}
+          />
+          <span className="text-[11px] font-medium" style={{ color: T.accent }}>
+            Upload des images en cours...
+          </span>
+        </div>
+      )}
+
       <div
         className="border-t p-3"
         style={{ borderColor: T.border, backgroundColor: T.bg }}
@@ -986,28 +1161,46 @@ export default function AssistanceIaChat({
         <form onSubmit={handleSubmit} className="flex flex-col gap-2">
           {attachedImages.length > 0 && (
             <div className="flex flex-wrap gap-2">
-              {attachedImages.map((img, index) => (
+              {attachedImages.map((img) => (
                 <div
-                  key={index}
-                  className="group relative h-16 w-16 overflow-hidden rounded-lg shadow-sm"
-                  style={{ boxShadow: `inset 0 0 0 1px ${T.border}` }}
+                  key={img.localId}
+                  className={`group relative h-16 w-16 overflow-hidden rounded-lg shadow-sm ${
+                    img.uploading ? "wp-uploading border" : ""
+                  }`}
+                  style={{
+                    boxShadow: img.uploading
+                      ? undefined
+                      : `inset 0 0 0 1px ${T.border}`,
+                    borderColor: img.uploading ? T.accent : undefined,
+                  }}
                 >
                   <Image
-                    src={img}
-                    alt={`Preview ${index + 1}`}
+                    src={img.url}
+                    alt={img.fileName}
                     width={64}
                     height={64}
-                    unoptimized
+                    unoptimized={img.url.startsWith("blob:")}
                     className="h-full w-full object-cover"
                   />
+
+                  {img.uploading && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/50 backdrop-blur-[1px]">
+                      <Loader2 className="h-4 w-4 animate-spin text-white" />
+                    </div>
+                  )}
+
                   <button
                     type="button"
-                    onClick={() => removeImage(index)}
+                    onClick={() => removeImage(img.localId)}
                     className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-black/70 text-white opacity-0 transition hover:bg-black/90 group-hover:opacity-100"
                     title="Retirer cette image"
                   >
                     <X className="h-3 w-3" />
                   </button>
+
+                  <div className="pointer-events-none absolute inset-x-0 bottom-0 truncate bg-black/60 px-1 py-0.5 text-[8px] text-white opacity-0 transition group-hover:opacity-100">
+                    {img.fileName}
+                  </div>
                 </div>
               ))}
             </div>
@@ -1018,25 +1211,30 @@ export default function AssistanceIaChat({
             style={{
               backgroundColor: T.surface,
               boxShadow: `inset 0 0 0 1px ${T.border}`,
-              // @ts-expect-error ring-color via style
+              // @ts-expect-error custom CSS var
               "--tw-ring-color": T.accentBorder,
             }}
           >
             <input
               ref={fileInputRef}
               type="file"
-              accept="image/*"
+              accept={MIME_ACCEPTES.join(",")}
               multiple
               onChange={handleFileChange}
               className="hidden"
-              disabled={isSending || !token}
+              disabled={isSending || isUploading || !token}
             />
 
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              disabled={isSending || !token}
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors disabled:opacity-40"
+              disabled={
+                isSending ||
+                isUploading ||
+                !token ||
+                attachedImages.length >= MAX_IMAGES
+              }
+              className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors disabled:opacity-40"
               style={{ color: T.textSecondary }}
               onMouseEnter={(e) => {
                 e.currentTarget.style.backgroundColor = T.elevated;
@@ -1046,9 +1244,25 @@ export default function AssistanceIaChat({
                 e.currentTarget.style.backgroundColor = "transparent";
                 e.currentTarget.style.color = T.textSecondary;
               }}
-              title="Joindre une image"
+              title={
+                attachedImages.length >= MAX_IMAGES
+                  ? `Maximum ${MAX_IMAGES} images`
+                  : "Joindre une image (PNG, JPG, WEBP, GIF, SVG, ICO)"
+              }
             >
-              <ImageIcon className="h-4 w-4" />
+              {isUploading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <ImageIcon className="h-4 w-4" />
+              )}
+              {attachedImages.length > 0 && (
+                <span
+                  className="absolute -right-0.5 -top-0.5 flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-bold text-white"
+                  style={{ backgroundColor: T.accent }}
+                >
+                  {attachedImages.length}
+                </span>
+              )}
             </button>
 
             <Textarea
@@ -1068,24 +1282,18 @@ export default function AssistanceIaChat({
 
             <button
               type="submit"
-              disabled={
-                (!message.trim() && attachedImages.length === 0) ||
-                isSending ||
-                !token
-              }
+              disabled={submitDisabled}
               className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-white shadow-md transition-all active:scale-95 disabled:opacity-40"
-              style={{
-                backgroundColor: T.accent,
-              }}
+              style={{ backgroundColor: T.accent }}
               onMouseEnter={(e) => {
                 if (!e.currentTarget.disabled)
-                  e.currentTarget.style.backgroundColor = "#7c3aed";
+                  e.currentTarget.style.backgroundColor = T.accentHover;
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.backgroundColor = T.placeholder;
+                e.currentTarget.style.backgroundColor = T.accent;
               }}
             >
-              {isSending ? (
+              {isSending || isUploading ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
                 <Send className="h-4 w-4" />
@@ -1094,7 +1302,9 @@ export default function AssistanceIaChat({
           </div>
 
           <p className="text-center text-[10px]" style={{ color: T.textMuted }}>
-            Entrée pour envoyer · Shift+Entrée pour sauter une ligne
+            Entrée pour envoyer · Shift+Entrée pour sauter une ligne ·{" "}
+            {attachedImages.length}/{MAX_IMAGES} image
+            {attachedImages.length > 1 ? "s" : ""}
           </p>
         </form>
       </div>

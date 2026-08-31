@@ -25,9 +25,10 @@ export type MessageRole = "utilisateur" | "assistant" | "systeme";
 
 export interface MessageIA {
   id: number;
-  conversationId: number | null;
-  role: MessageRole;
+  conversationId: number;
+  role: "utilisateur" | "assistant" | "systeme";
   contenu: string;
+  images?: string[];
   createdAt: string;
 }
 

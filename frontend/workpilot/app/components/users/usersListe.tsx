@@ -16,12 +16,20 @@ import {
 import {
   ArrowUpDown,
   Crown,
+  EllipsisVertical,
+  Pencil,
   Search,
   ShieldCheck,
   UserCheck,
   Users,
   UserX,
 } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 import { useUserStore } from "@/stores/userStore";
 
@@ -40,46 +48,24 @@ import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import CreateUserDialog from "./createUsers";
-
-/* ============================================================
-   TYPES
-============================================================ */
-
-interface UserRow {
-  id: number;
-  nom: string;
-  prenom: string;
-  email: string;
-  telephone: string | null;
-  roleGlobal: "admin" | "membre";
-  statut: "actif" | "suspendu";
-}
+import UpdateUsers from "./updateUsers";
+import { cn } from "@/lib/utils";
+import type { User } from "@/types/userTypes";
 
 type StatFilter = "tous" | "actif" | "suspendu" | "admin";
-
-/* ============================================================
-   COMPOSANT PRINCIPAL
-============================================================ */
 
 export default function UsersListes() {
   const { users, getUsers, isLoading, isUpdating, changeStatus } =
     useUserStore();
 
+  const [editingUser, setEditingUser] = useState<User | null>(null);
   const [sorting, setSorting] = useState<SortingState>([]);
   const [globalFilter, setGlobalFilter] = useState("");
   const [statFilter, setStatFilter] = useState<StatFilter>("tous");
 
-  /* ==========================================================
-     CHARGEMENT INITIAL
-  ========================================================== */
-
   useEffect(() => {
     getUsers();
   }, [getUsers]);
-
-  /* ==========================================================
-     STATISTIQUES
-  ========================================================== */
 
   const stats = useMemo(() => {
     return {
@@ -127,10 +113,6 @@ export default function UsersListes() {
     },
   ];
 
-  /* ==========================================================
-     FILTRAGE PAR STAT (cartes cliquables)
-  ========================================================== */
-
   const filteredUsers = useMemo(() => {
     switch (statFilter) {
       case "actif":
@@ -147,11 +129,7 @@ export default function UsersListes() {
     }
   }, [users, statFilter]);
 
-  /* ==========================================================
-     COLONNES
-  ========================================================== */
-
-  const columns = useMemo<ColumnDef<UserRow>[]>(
+  const columns = useMemo<ColumnDef<User>[]>(
     () => [
       {
         id: "nom",
@@ -170,8 +148,6 @@ export default function UsersListes() {
 
           return (
             <div className="flex items-center gap-3">
-              {/* AVATAR INITIALES */}
-
               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#6366F1]/10 text-sm font-semibold text-[#6366F1]">
                 {user.prenom?.charAt(0).toUpperCase()}
                 {user.nom?.charAt(0).toUpperCase()}
@@ -267,10 +243,19 @@ export default function UsersListes() {
         ),
         cell: ({ row }) => {
           const user = row.original;
+          const isAdmin = user.roleGlobal === "admin";
 
           return (
             <div className="flex items-center gap-3">
-              {user.roleGlobal === "membre" ? (
+              {/* ===== Switch (membre) ou Shield (admin) ===== */}
+              {isAdmin ? (
+                <div
+                  className="flex h-8 w-8 items-center justify-center rounded-full bg-amber-500/10 text-amber-600"
+                  title="Le statut d'un administrateur ne peut pas être modifié"
+                >
+                  <ShieldCheck className="h-4 w-4" />
+                </div>
+              ) : (
                 <Switch
                   checked={user.statut === "actif"}
                   disabled={isUpdating}
@@ -279,13 +264,6 @@ export default function UsersListes() {
                   }
                   className="data-checked:bg-[#6366F1]! data-unchecked:bg-red-400!"
                 />
-              ) : (
-                <div
-                  className="flex h-8 w-8 items-center justify-center rounded-full bg-amber-500/10 text-amber-600"
-                  title="Le statut d'un administrateur ne peut pas être modifié"
-                >
-                  <ShieldCheck className="h-4 w-4" />
-                </div>
               )}
 
               <Badge
@@ -298,6 +276,29 @@ export default function UsersListes() {
               >
                 {user.statut === "actif" ? "Actif" : "Suspendu"}
               </Badge>
+
+              {!isAdmin && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger
+                    className={cn(
+                      "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg",
+                      "text-muted-foreground transition-colors",
+                      "hover:bg-muted hover:text-foreground",
+                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    )}
+                  >
+                    <EllipsisVertical className="h-4 w-4" />
+                    <span className="sr-only">Actions</span>
+                  </DropdownMenuTrigger>
+
+                  <DropdownMenuContent align="end" className="w-48">
+                    <DropdownMenuItem onClick={() => setEditingUser(user)}>
+                      <Pencil className="mr-2 h-4 w-4" />
+                      Modifier
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
             </div>
           );
         },
@@ -308,7 +309,7 @@ export default function UsersListes() {
 
   // eslint-disable-next-line react-hooks/incompatible-library
   const table = useReactTable({
-    data: filteredUsers as UserRow[],
+    data: filteredUsers as User[],
     columns,
     state: {
       sorting,
@@ -503,7 +504,7 @@ export default function UsersListes() {
           <TableBody>
             {table.getRowModel().rows.length > 0 ? (
               table.getRowModel().rows.map((row) => (
-                <TableRow key={row.id} className="hover:bg-muted/40">
+                <TableRow key={row.id} className="group hover:bg-muted/40">
                   {row.getVisibleCells().map((cell) => (
                     <TableCell key={cell.id}>
                       {flexRender(
@@ -579,6 +580,14 @@ export default function UsersListes() {
           </Button>
         </div>
       </div>
+
+      <UpdateUsers
+        user={editingUser}
+        open={editingUser !== null}
+        onOpenChange={(open) => {
+          if (!open) setEditingUser(null);
+        }}
+      />
     </div>
   );
 }

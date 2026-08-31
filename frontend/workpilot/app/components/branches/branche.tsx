@@ -122,7 +122,7 @@ export default function BranchesPage() {
           placeholder="Rechercher une branche..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="h-9 min-w-[200px] flex-1 rounded-md border border-slate-200 bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#6366F1]/40"
+          className="h-9 min-w-50 flex-1 rounded-md border border-slate-200 bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#6366F1]/40"
         />
 
         <div className="flex rounded-md border border-slate-200 bg-white p-1">

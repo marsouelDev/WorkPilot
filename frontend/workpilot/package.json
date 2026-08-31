@@ -38,6 +38,7 @@
     "react-phone-number-input": "^3.4.17",
     "react-resizable-panels": "^2.1.7",
     "react-syntax-highlighter": "^16.1.1",
+    "recharts": "^3.8.0",
     "rehype-highlight": "^7.0.2",
     "remark-gfm": "^4.0.1",
     "shadcn": "^4.16.1",
