@@ -185,6 +185,7 @@ model MessageIA {
   conversationId Int
   conversation   AssistanceIA @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   role           RoleMessageIA
+  images         String[]     @default([]) 
   contenu        String       @db.Text
   createdAt      DateTime     @default(now())
   @@index([conversationId, createdAt])

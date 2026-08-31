@@ -4,23 +4,81 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-
 import { DatabaseService } from '../database/database.service';
+
+type MessageContent =
+  | string
+  | Array<
+      | { type: 'text'; text: string }
+      | { type: 'image_url'; image_url: { url: string; detail?: string } }
+    >;
+
+type AIMessage = {
+  role: 'user' | 'assistant' | 'system';
+  content: MessageContent;
+};
+
+const MAX_TOKENS = {
+  gemini: 8192,
+  mistral: 8192,
+  groq: 8192,
+  openrouter: 16384,
+} as const;
+
+const estUrlImageValide = (url: string): boolean => {
+  if (!url || typeof url !== 'string') return false;
+  if (!url.startsWith('https://')) return false;
+  if (/^https:\/\/res\.cloudinary\.com\/[^/]+\//.test(url)) return true;
+  if (/^https:\/\/i\.ibb\.co\//.test(url)) return true;
+  if (/\.(png|jpe?g|webp|gif|avif)(\?.*)?$/i.test(url)) return true;
+  return false;
+};
+
+async function imageVersBase64(url: string): Promise<{
+  base64: string;
+  mime: string;
+} | null> {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const buffer = Buffer.from(await res.arrayBuffer());
+    const mime = res.headers.get('content-type') || 'image/png';
+    return { base64: buffer.toString('base64'), mime };
+  } catch {
+    return null;
+  }
+}
 
 @Injectable()
 export class AssistanceIaService {
   private readonly logger = new Logger(AssistanceIaService.name);
-  private readonly apiUrl = 'https://openrouter.ai/api/v1/chat/completions';
+
   private readonly groqApiUrl =
     'https://api.groq.com/openai/v1/chat/completions';
+  private readonly openRouterApiUrl =
+    'https://openrouter.ai/api/v1/chat/completions';
+  private readonly geminiApiUrl =
+    'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
+  private readonly mistralApiUrl = 'https://api.mistral.ai/v1/chat/completions';
+
+  /*  Modèles Groq : TEXTE  */
   private readonly modelesGroq = [
     'llama-3.3-70b-versatile',
     'llama-3.1-8b-instant',
     'openai/gpt-oss-120b',
     'qwen/qwen3.6-27b',
     'openai/gpt-oss-20b',
+    'qwen/qwen3-32b',
   ];
 
+  /*  Modèles Groq : VISION  */
+  private readonly modelesGroqVision = [
+    'llama-3.2-90b-vision-preview',
+    'llama-3.2-11b-vision-preview',
+    'llava-v1.5-7b-4096-preview',
+  ];
+
+  /*  Modèles OpenRouter : TEXTE  */
   private readonly modelesOpenRouter = [
     'nvidia/nemotron-3-ultra-550b-a55b:free',
     'nvidia/nemotron-3-super-120b-a12b:free',
@@ -34,6 +92,32 @@ export class AssistanceIaService {
     'meta-llama/llama-3.3-70b-instruct:free',
     'google/gemma-2-27b-it:free',
     'openrouter/free',
+  ];
+
+  /*  Modèles OpenRouter : VISION  */
+  private readonly modelesOpenRouterVision = [
+    'google/gemma-4-31b-it:free',
+    'google/gemma-4-26b-a4b-it:free',
+    'google/gemma-2-27b-it:free',
+    'mimo-v2/mimo-v2.5:free',
+    'meta-llama/llama-3.3-70b-instruct:free',
+    'deepseek/deepseek-chat-v3-0324:free',
+    'qwen/qwen-2.5-72b-instruct:free',
+    'openrouter/free',
+  ];
+
+  /* Modèles Mistral : TEXTE  */
+  private readonly modelesMistral = [
+    'mistral-large-latest',
+    'mistral-small-latest',
+    'codestral-latest',
+    'open-mistral-nemo',
+  ];
+
+  /*  Modèles Mistral : VISION  */
+  private readonly modelesMistralVision = [
+    'pixtral-large-latest',
+    'pixtral-12b-2409',
   ];
 
   constructor(private readonly databaseService: DatabaseService) {}
@@ -50,21 +134,382 @@ export class AssistanceIaService {
       );
     }
   }
-  async getTaskContent(tacheId: number, userId: number) {
-    const tache = await this.databaseService.tache.findUnique({
-      where: {
-        id: tacheId,
-      },
 
-      include: {
-        projet: true,
-        assignee: true,
-      },
+  private construireContenuUser(
+    contenu: string,
+    images?: string[],
+  ): MessageContent {
+    const urlsValides = (images ?? []).filter(estUrlImageValide);
+    if (urlsValides.length === 0) return contenu || '[Image jointe]';
+    return [
+      { type: 'text', text: contenu || '[Image jointe]' },
+      ...urlsValides.map((url) => ({
+        type: 'image_url' as const,
+        image_url: { url, detail: 'auto' },
+      })),
+    ];
+  }
+
+  private contientImages(message: any): boolean {
+    return Array.isArray(message.images) && message.images.length > 0;
+  }
+
+  private async appelerGemini(
+    system: string,
+    messages: AIMessage[],
+  ): Promise<string> {
+    const geminiKey = process.env.GEMINI_API_KEY;
+    if (!geminiKey) throw new Error('GEMINI_API_KEY non configurée');
+
+    try {
+      const contents: Array<{
+        role: 'user' | 'model';
+        parts: Array<
+          { text: string } | { inlineData: { mimeType: string; data: string } }
+        >;
+      }> = [];
+
+      for (const msg of messages) {
+        if (msg.role === 'system') continue;
+        const role: 'user' | 'model' = msg.role === 'user' ? 'user' : 'model';
+        const parts: Array<
+          { text: string } | { inlineData: { mimeType: string; data: string } }
+        > = [];
+
+        if (typeof msg.content === 'string') {
+          parts.push({ text: msg.content });
+        } else if (Array.isArray(msg.content)) {
+          for (const item of msg.content) {
+            if (item.type === 'text') {
+              parts.push({ text: item.text });
+            } else if (item.type === 'image_url') {
+              const img = await imageVersBase64(item.image_url.url);
+              if (img) {
+                parts.push({
+                  inlineData: {
+                    mimeType: img.mime,
+                    data: img.base64,
+                  },
+                });
+              }
+            }
+          }
+        }
+
+        if (parts.length > 0) {
+          contents.push({ role, parts });
+        }
+      }
+
+      const res = await fetch(`${this.geminiApiUrl}?key=${geminiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: system }] },
+          contents,
+          generationConfig: {
+            temperature: 0.7,
+            maxOutputTokens: MAX_TOKENS.gemini,
+          },
+        }),
+      });
+
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(`Gemini error (${res.status}): ${errorText}`);
+      }
+
+      const data = await res.json();
+      const contenu = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+
+      if (!contenu) throw new Error('Réponse Gemini vide');
+
+      this.logger.log(
+        `✅ Succès Gemini 1.5 Flash (~${Math.ceil(contenu.length / 3)} tokens)`,
+      );
+      return contenu.trim();
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Échec Gemini : ${errMsg}`);
+      throw new Error(`Gemini échoué : ${errMsg}`);
+    }
+  }
+
+  private async appelerMistral(
+    system: string,
+    messages: AIMessage[],
+    avecVision: boolean,
+  ): Promise<string> {
+    const mistralKey = process.env.MISTRAL_API_KEY;
+    if (!mistralKey) throw new Error('MISTRAL_API_KEY non configurée');
+
+    const modelesAUtiliser = avecVision
+      ? this.modelesMistralVision
+      : this.modelesMistral;
+
+    let derniereErreur: Error | null = null;
+
+    for (const modele of modelesAUtiliser) {
+      try {
+        this.logger.debug(
+          `Tentative Mistral avec ${modele} (vision: ${avecVision})`,
+        );
+
+        const response = await fetch(this.mistralApiUrl, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${mistralKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: modele,
+            messages: [{ role: 'system', content: system }, ...messages],
+            temperature: 0.7,
+            max_tokens: MAX_TOKENS.mistral,
+          }),
+        });
+
+        if (response.status === 429) {
+          this.logger.warn(`Rate limit Mistral : ${modele}`);
+          continue;
+        }
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Mistral error (${response.status}): ${errorText}`);
+        }
+
+        const data = await response.json();
+        const contenu = data?.choices?.[0]?.message?.content;
+
+        if (!contenu) throw new Error('Réponse Mistral vide');
+
+        this.logger.log(
+          `Succès Mistral avec ${modele} (~${Math.ceil(contenu.length / 3)} tokens)`,
+        );
+        return contenu.trim();
+      } catch (error) {
+        derniereErreur =
+          error instanceof Error ? error : new Error(String(error));
+        this.logger.error(`Échec Mistral ${modele}: ${derniereErreur.message}`);
+      }
+    }
+
+    throw derniereErreur ?? new Error('Tous les modèles Mistral ont échoué');
+  }
+  private async appelerGroq(
+    system: string,
+    messages: AIMessage[],
+    avecVision: boolean,
+  ): Promise<string> {
+    const groqKey = process.env.GROQ_API_KEY;
+    if (!groqKey) throw new Error('GROQ_API_KEY non configurée');
+
+    const modelesAUtiliser = avecVision
+      ? this.modelesGroqVision
+      : this.modelesGroq;
+
+    let derniereErreur: Error | null = null;
+
+    for (const modele of modelesAUtiliser) {
+      try {
+        this.logger.debug(
+          `Tentative Groq avec ${modele} (vision: ${avecVision})`,
+        );
+
+        const response = await fetch(this.groqApiUrl, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${groqKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: modele,
+            messages: [{ role: 'system', content: system }, ...messages],
+            temperature: 0.7,
+            max_tokens: MAX_TOKENS.groq,
+          }),
+        });
+
+        if (response.status === 429) {
+          this.logger.warn(`Rate limit Groq : ${modele}`);
+          continue;
+        }
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Groq error (${response.status}): ${errorText}`);
+        }
+
+        const data = await response.json();
+        const contenu = data?.choices?.[0]?.message?.content;
+
+        if (!contenu) throw new Error('Réponse Groq vide');
+
+        this.logger.log(
+          `Succès Groq avec ${modele} (~${Math.ceil(contenu.length / 3)} tokens)`,
+        );
+        return contenu.trim();
+      } catch (error) {
+        derniereErreur =
+          error instanceof Error ? error : new Error(String(error));
+        this.logger.error(`Échec Groq ${modele}: ${derniereErreur.message}`);
+      }
+    }
+
+    throw derniereErreur ?? new Error('Tous les modèles Groq ont échoué');
+  }
+
+  private async appelerOpenRouter(
+    system: string,
+    messages: AIMessage[],
+    avecVision: boolean,
+  ): Promise<string> {
+    const openRouterKey = process.env.OPENROUTER_API_KEY;
+    if (!openRouterKey) throw new Error('OPENROUTER_API_KEY non configurée');
+
+    const modelesAUtiliser = avecVision
+      ? this.modelesOpenRouterVision
+      : this.modelesOpenRouter;
+
+    let derniereErreur: Error | null = null;
+
+    for (const modele of modelesAUtiliser) {
+      try {
+        this.logger.debug(
+          `Tentative OpenRouter avec ${modele} (vision: ${avecVision})`,
+        );
+
+        const response = await fetch(this.openRouterApiUrl, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${openRouterKey}`,
+            'Content-Type': 'application/json',
+            'HTTP-Referer': process.env.APP_URL || 'http://localhost:3001',
+            'X-Title': 'WorkPilot',
+          },
+          body: JSON.stringify({
+            model: modele,
+            messages: [{ role: 'system', content: system }, ...messages],
+            temperature: 0.7,
+            max_tokens: MAX_TOKENS.openrouter,
+          }),
+        });
+
+        if (
+          response.status === 429 ||
+          response.status === 404 ||
+          response.status === 400
+        ) {
+          const errorText = await response.text();
+          this.logger.warn(
+            `Modèle OpenRouter indisponible ${modele}: ${errorText}`,
+          );
+          continue;
+        }
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(
+            `OpenRouter error (${response.status}): ${errorText}`,
+          );
+        }
+
+        const data = await response.json();
+        const contenu = data?.choices?.[0]?.message?.content;
+
+        if (!contenu) throw new Error('Réponse OpenRouter vide');
+
+        this.logger.log(
+          `Succès OpenRouter avec ${modele} (~${Math.ceil(contenu.length / 3)} tokens)`,
+        );
+        return contenu.trim();
+      } catch (error) {
+        derniereErreur =
+          error instanceof Error ? error : new Error(String(error));
+        this.logger.error(
+          `Échec OpenRouter ${modele}: ${derniereErreur.message}`,
+        );
+      }
+    }
+
+    throw derniereErreur ?? new Error('Tous les modèles OpenRouter ont échoué');
+  }
+
+  private async appelerIA(
+    system: string,
+    messages: AIMessage[],
+    avecVision: boolean,
+  ): Promise<string> {
+    let derniereErreur: Error | null = null;
+
+    if (avecVision && process.env.GEMINI_API_KEY) {
+      try {
+        return await this.appelerGemini(system, messages);
+      } catch (error) {
+        derniereErreur =
+          error instanceof Error ? error : new Error(String(error));
+        this.logger.warn(`Gemini indisponible. Passage à Mistral.`);
+      }
+    }
+
+    if (process.env.MISTRAL_API_KEY) {
+      try {
+        return await this.appelerMistral(system, messages, avecVision);
+      } catch (error) {
+        derniereErreur =
+          error instanceof Error ? error : new Error(String(error));
+        this.logger.warn(`Mistral indisponible. Passage à Groq.`);
+      }
+    }
+
+    if (process.env.GROQ_API_KEY) {
+      try {
+        return await this.appelerGroq(system, messages, avecVision);
+      } catch (error) {
+        derniereErreur =
+          error instanceof Error ? error : new Error(String(error));
+        this.logger.warn(`Groq indisponible. Passage à OpenRouter.`);
+      }
+    }
+
+    if (process.env.OPENROUTER_API_KEY) {
+      try {
+        return await this.appelerOpenRouter(system, messages, avecVision);
+      } catch (error) {
+        derniereErreur =
+          error instanceof Error ? error : new Error(String(error));
+      }
+    }
+
+    throw new Error(
+      `Tous les moteurs IA ont échoué. ${derniereErreur?.message || ''}`,
+    );
+  }
+
+  private async obtenirConversation(tacheId: number) {
+    let conversation = await this.databaseService.assistanceIA.findUnique({
+      where: { tacheId },
+      include: { messages: { orderBy: { createdAt: 'asc' } } },
     });
 
-    if (!tache) {
-      throw new NotFoundException('Tâche introuvable');
+    if (!conversation) {
+      conversation = await this.databaseService.assistanceIA.create({
+        data: { tacheId },
+        include: { messages: { orderBy: { createdAt: 'asc' } } },
+      });
     }
+
+    return conversation;
+  }
+
+  async getTaskContent(tacheId: number, userId: number) {
+    const tache = await this.databaseService.tache.findUnique({
+      where: { id: tacheId },
+      include: { projet: true, assignee: true },
+    });
+
+    if (!tache) throw new NotFoundException('Tâche introuvable');
     this.verifierAccesIA(tache, userId);
 
     return {
@@ -77,13 +522,11 @@ export class AssistanceIaService {
         competences: tache.competences,
         echeance: tache.echeance,
       },
-
       project: {
         id: tache.projet.id,
         titre: tache.projet.titre,
         description: tache.projet.descriptionSommaire,
       },
-
       assignee: {
         id: tache.assignee!.id,
         nom: tache.assignee!.nom,
@@ -117,11 +560,11 @@ ${projectStructure}
 \`\`\`
 
 **Règles d'utilisation :**
-- ✅ Un nouveau fichier peut être placé dans un dossier existant OU nouveau (il sera créé automatiquement)
-- ✅ Les imports doivent pointer vers des fichiers qui existent (ou que tu crées) dans cette arborescence
-- ✅ Tu peux créer de nouveaux dossiers avec \`action: mkdir\` pour organiser le code
-- ❌ JAMAIS inventer un dossier ou fichier qui n'apparaît pas ci-dessus SANS le créer explicitement
-- ❌ JAMAIS proposer un path avec \`/\` au début ou avec le nom du projet (ex: pas \`/locmaison/app/page.tsx\`)
+- Un nouveau fichier peut être placé dans un dossier existant OU nouveau (il sera créé automatiquement)
+- Les imports doivent pointer vers des fichiers qui existent (ou que tu crées) dans cette arborescence
+- Tu peux créer de nouveaux dossiers avec \`action: mkdir\` pour organiser le code
+- JAMAIS inventer un dossier ou fichier qui n'apparaît pas ci-dessus SANS le créer explicitement
+- JAMAIS proposer un path avec \`/\` au début ou avec le nom du projet (ex: pas \`/locmaison/app/page.tsx\`)
 `
       : '';
 
@@ -138,10 +581,10 @@ ${relevantFiles
   .join('\n\n')}
 
 **Règles d'utilisation :**
-- ✅ Respecte le style, les imports et les conventions déjà en place
-- ✅ Réutilise les composants/hooks/stores existants quand c'est pertinent
-- ✅ Si tu modifies un fichier, garde TOUT le contenu existant (pas de suppression involontaire)
-- ❌ JAMAIS proposer du code incompatible avec ce qui existe déjà
+- Respecte le style, les imports et les conventions déjà en place
+- Réutilise les composants/hooks/stores existants quand c'est pertinent
+- Si tu modifies un fichier, garde TOUT le contenu existant (pas de suppression involontaire)
+- JAMAIS proposer du code incompatible avec ce qui existe déjà
 `
         : '';
 
@@ -194,6 +637,33 @@ ${stackSection}
 
 ---
 
+# 🖼️ ANALYSE D'IMAGES
+
+Tu peux recevoir des **images** (captures d'écran, maquettes, diagrammes, erreurs navigateur).
+
+Quand une image est jointe :
+
+1. **Analyse-la attentivement** :
+   - Messages d'erreur, stack traces, logs console
+   - Interfaces utilisateur, maquettes, designs
+   - Diagrammes UML, architectures, schémas
+   - Code source visible dans une capture
+   - Problèmes visuels (débordements, alignements, couleurs)
+
+2. **Relie l'image au contexte** :
+   - Corrèle les erreurs avec le code du projet
+   - Compare les maquettes avec les composants existants
+   - Identifie les patterns visuels à implémenter
+
+3. **Propose des actions concrètes** :
+   - Corrections de bugs avec les fichiers précis à modifier
+   - Adaptation du code pour correspondre au design
+   - Implémentation de l'architecture décrite dans le diagramme
+
+**Important :** Mentionne toujours CE QUE TU VOIS dans l'image avant de proposer du code.
+
+---
+
 # MÉTHODOLOGIE OBLIGATOIRE — 4 ÉTAPES
 
 **À CHAQUE question, tu DOIS suivre ces 4 étapes dans l'ordre. Ne saute aucune étape.**
@@ -205,6 +675,7 @@ Avant toute chose, analyse en silence :
 2. **Les fichiers pertinents** fournis : quel est le style, la structure, les imports ?
 3. **La stack** : quelles dépendances sont installées (package.json) ?
 4. **Les conventions** : nommage, structure de dossiers, patterns utilisés
+5. **Les images jointes** (si présentes) : que voit-on ? erreurs, design, architecture ?
 
 Écris un paragraphe "## 🔍 Analyse" qui résume ce que tu as compris.
 
@@ -235,7 +706,7 @@ Termine par une section "## ✅ Validation" qui explique :
 
 ---
 
-# 📐 FORMAT DE RÉPONSE OBLIGATOIRE
+# FORMAT DE RÉPONSE OBLIGATOIRE
 
 Respecte EXACTEMENT cette structure. Les blocs \`\`\`file_action\`\`\` sont parsés automatiquement par le frontend.
 
@@ -250,7 +721,7 @@ Respecte EXACTEMENT cette structure. Les blocs \`\`\`file_action\`\`\` sont pars
 2. [Créer le fichier Y]
 3. [Modifier le fichier Z]
 
-## 💻 Implémentation
+## Implémentation
 
 ### Action 1 : Créer le dossier features/auth
 
@@ -285,7 +756,7 @@ action: update
 [CODE COMPLET AVEC TOUT LE CONTENU]
 \`\`\`
 
-## ✅ Validation
+## Validation
 
 - Comment tester : [...]
 - Points de vigilance : [...]
@@ -302,12 +773,6 @@ action: update
 - Crée un nouveau dossier (et tous ses parents si nécessaire grâce à \`recursive: true\`)
 - **PAS de bloc de code après** (juste le bloc \`file_action\`)
 - Utilise-la pour organiser le code en modules logiques
-
-Exemple :
-\`\`\`file_action
-path: components/features/search
-action: mkdir
-\`\`\`
 
 ### 2. \`action: create\` — Créer un fichier
 - Crée un nouveau fichier avec le contenu fourni
@@ -329,31 +794,22 @@ action: mkdir
 # 🗺️ RÈGLES ABSOLUES DES CHEMINS
 
 ## Format obligatoire
-- ✅ Chemins **RELATIFS** à la racine du projet
-- ✅ **SANS \`/\` au début**
-- ✅ **SANS le nom du projet**
+- Chemins **RELATIFS** à la racine du projet
+- **SANS \`/\` au début**
+- **SANS le nom du projet**
 
 ## Exemples valides
-- ✅ \`app/page.tsx\`
-- ✅ \`components/ui/Button.tsx\`
-- ✅ \`src/hooks/useTasks.ts\`
-- ✅ \`features/auth/LoginForm.tsx\`
-- ✅ \`lib/utils/formatDate.ts\`
+- \`app/page.tsx\`
+- \`components/ui/Button.tsx\`
+- \`src/hooks/useTasks.ts\`
+- \`features/auth/LoginForm.tsx\`
+- \`lib/utils/formatDate.ts\`
 
 ## Exemples INVALIDES (interdits)
-- ❌ \`/app/page.tsx\` (pas de \`/\` au début)
-- ❌ \`locmaison/app/page.tsx\` (pas le nom du projet)
-- ❌ \`/locmaison/app/page.tsx\` (ni l'un ni l'autre)
-- ❌ \`./app/page.tsx\` (pas de \`./\`)
-
-## Création automatique des dossiers parents
-- Pour un **fichier** : le dossier parent sera créé automatiquement si nécessaire
-- Pour un **dossier** (\`mkdir\`) : tous les dossiers parents seront créés automatiquement (\`recursive: true\`)
-- Tu peux donc créer des chemins profonds sans te soucier de l'existence des parents
-
-## Recommandation d'organisation
-- Pour une petite feature : place directement dans \`app/\` ou \`components/\`
-- Pour une feature complexe : crée une arborescence dédiée avec \`mkdir\` (ex: \`features/auth/\`, \`features/search/\`)
+- \`/app/page.tsx\` (pas de \`/\` au début)
+- \`locmaison/app/page.tsx\` (pas le nom du projet)
+- \`/locmaison/app/page.tsx\` (ni l'un ni l'autre)
+- \`./app/page.tsx\` (pas de \`./\`)
 
 ---
 
@@ -361,392 +817,9 @@ action: mkdir
 
 Tu DOIS détecter le type de projet ET le langage à partir du \`package.json\`, du \`tsconfig.json\` et de l'arborescence. Adapte ton code en conséquence.
 
-## 🔍 Détection du framework
-
-Regarde le \`package.json\` et l'arborescence :
-
-### Frameworks Frontend
-
-| Framework | Indices dans package.json | Indices dans l'arborescence |
-|---|---|---|
-| **Next.js** | \`"next"\` | \`app/\` ou \`pages/\`, \`next.config.js\` |
-| **React (Vite)** | \`"react"\` + \`"vite"\` | \`vite.config.js\`, \`src/main.jsx\` |
-| **React (CRA)** | \`"react-scripts"\` | \`src/App.js\`, \`public/\` |
-| **Angular** | \`"@angular/core"\` | \`src/app/\`, \`angular.json\` |
-| **Vue.js (Vite)** | \`"vue"\` + \`"vite"\` | \`vite.config.js\`, fichiers \`.vue\` |
-| **Vue.js (CLI)** | \`"@vue/cli-service"\` | \`vue.config.js\` |
-| **Svelte** | \`"svelte"\` + \`"vite"\` | \`svelte.config.js\`, fichiers \`.svelte\` |
-| **Solid.js** | \`"solid-js"\` + \`"vite"\` | \`vite.config.js\`, \`src/App.tsx\` |
-| **Astro** | \`"astro"\` | \`astro.config.js\`, \`src/pages/\` |
-| **Remix** | \`"@remix-run/node"\` | \`app/routes/\`, \`remix.config.js\` |
-| **HTML/CSS/JS pur** | Pas de framework | \`index.html\` à la racine |
-
-### Frameworks Backend Node.js
-
-| Framework | Indices dans package.json | Indices dans l'arborescence |
-|---|---|---|
-| **NestJS** | \`"@nestjs/core"\` | \`src/main.ts\`, \`src/app.module.ts\` |
-| **Express** | \`"express"\` | \`server.js\`, \`app.js\`, \`src/index.js\` |
-| **Fastify** | \`"fastify"\` | \`server.js\`, \`src/server.ts\` |
-| **Koa** | \`"koa"\` | \`app.js\`, \`src/app.js\` |
-| **Hono** | \`"hono"\` | \`src/index.ts\` (souvent + Cloudflare/Bun) |
-| **AdonisJS** | \`"@adonisjs/core"\` | \`start/routes.ts\`, \`app/controllers/\` |
-| **FeathersJS** | \`"@feathersjs/feathers"\` | \`src/services/\`, \`src/app.js\` |
-| **Sails.js** | \`"sails"\` | \`api/controllers/\`, \`config/\` |
-| **LoopBack** | \`"@loopback/core"\` | \`src/controllers/\`, \`src/models/\` |
-| **Hapi** | \`"@hapi/hapi"\` | \`lib/server.js\`, \`src/index.js\` |
-| **Restify** | \`"restify"\` | \`server.js\` |
-| **Micro** | \`"micro"\` | \`api/\` (souvent + Vercel) |
-
-### Outils Backend / Runtime
-
-| Outil | Indices dans package.json | Usage |
-|---|---|---|
-| **tRPC** | \`"@trpc/server"\` | API type-safe (souvent avec Next.js) |
-| **GraphQL (Apollo)** | \`"@apollo/server"\`, \`"apollo-server-express"\` | API GraphQL |
-| **GraphQL Yoga** | \`"graphql-yoga"\` | Alternative moderne Apollo |
-| **Socket.io** | \`"socket.io"\` | WebSocket temps réel |
-| **BullMQ** | \`"bullmq"\` | Queues (Redis) |
-| **Prisma** | \`"@prisma/client"\` | ORM |
-| **TypeORM** | \`"typeorm"\` | ORM |
-| **Mongoose** | \`"mongoose"\` | ODM MongoDB |
-| **Drizzle** | \`"drizzle-orm"\` | ORM léger |
-| **Knex** | \`"knex"\` | Query builder SQL |
-| **Sequelize** | \`"sequelize"\` | ORM |
-
-###Runtime / Bundlers
-
-| Runtime | Indices |
-|---|---|
-| **Bun** | \`"bun-types"\`, \`bunfig.toml\` |
-| **Deno** | \`deno.json\` |
-| **Vite** | \`"vite"\` |
-| **Webpack** | \`"webpack"\` |
-| **esbuild** | \`"esbuild"\` |
-
 ---
 
-## Détection TypeScript
-
-| Indice | Signification |
-|---|---|
-| \`tsconfig.json\` présent | ✅ Projet TypeScript |
-| \`"typescript"\` dans devDependencies | ✅ Projet TypeScript |
-| Fichiers \`.ts\` / \`.tsx\` dans l'arborescence | ✅ Projet TypeScript |
-| Fichiers \`.js\` / \`.jsx\` seulement | ❌ Projet JavaScript |
-| \`"strict": true\` dans tsconfig | ✅ TypeScript strict |
-
-**Règle :**
-- Si TypeScript détecté → code \`.ts\` / \`.tsx\` typé
-- Si JavaScript seulement → code \`.js\` / \`.jsx\` avec JSDoc si utile
-- Si l'utilisateur demande explicitement TypeScript → propose \`npm install -D typescript\` + création du \`tsconfig.json\`
-
----
-
-## Conventions par framework
-
-### FRONTEND
-
-#### Next.js (App Router)
-\`\`\`
-app/                    → Routes (Server Components par défaut)
-  layout.tsx           → Layout racine
-  page.tsx             → Page par route
-  components/          → Composants clients ("use client")
-  lib/                 → Utilitaires, API clients
-  stores/              → État Zustand
-  types/               → Types TypeScript
-\`\`\`
-- Server Components par défaut, ajouter \`"use client"\` si hooks/interactivité
-- \`next/image\` pour les images, \`next/link\` pour les liens
-- Routes API dans \`app/api/\`
-
-#### React (Vite / CRA)
-\`\`\`
-src/
-  components/          → Composants React
-  hooks/               → Hooks personnalisés
-  stores/              → Zustand / Context
-  types/               → Types TypeScript
-  utils/               → Utilitaires
-\`\`\`
-- Composants fonctionnels + hooks
-- React Router pour la navigation
-- Vite : \`import.meta.env\` pour les variables d'env
-- CRA : \`process.env.REACT_APP_*\`
-
-#### Angular
-\`\`\`
-src/app/
-  components/          → Composants standalone
-  services/            → Injectables providedIn: 'root'
-  guards/              → Guards de route
-  interceptors/        → Interceptors HTTP
-  models/              → Interfaces
-\`\`\`
-- Standalone components (Angular 14+)
-- RxJS pour flux asynchrones
-- Reactive Forms ou Template-driven
-
-#### Vue.js 3 (Composition API)
-\`\`\`
-src/
-  components/          → SFC .vue
-  composables/         → useX()
-  stores/              → Pinia
-  views/               → Pages
-  router/              → Vue Router
-\`\`\`
-- \`<script setup lang="ts">\` + Composition API
-- Pinia pour l'état
-- \`<style scoped>\` pour le CSS
-
-#### Svelte / SvelteKit
-\`\`\`
-src/
-  routes/              → Pages (SvelteKit)
-  lib/                 → Composants réutilisables
-  stores/              → Stores Svelte
-\`\`\`
-- Réactivité déclarative (pas de hooks)
-- \`$:\` pour le réactif, \`$state()\` (Svelte 5)
-- Stores via \`writable\` / \`readable\`
-
-#### Solid.js
-\`\`\`
-src/
-  components/          → Composants JSX
-  App.tsx              → Racine
-\`\`\`
-- Signaux (\`createSignal\`, \`createMemo\`)
-- JSX similaire à React mais sans Virtual DOM
-
----
-
-### ⚙️ BACKEND NODE.JS
-
-#### NestJS
-\`\`\`
-src/
-  modules/             → Modules métier
-    module/
-      module.controller.ts
-      module.service.ts
-      module.module.ts
-      dto/             → DTOs (class-validator)
-      entities/        → Entités Prisma
-  common/              → Guards, interceptors partagés
-  config/              → Configuration
-\`\`\`
-- Architecture modulaire + DI
-- Décorateurs (@Controller, @Get, @Injectable)
-- DTOs avec class-validator + class-transformer
-- Guards JWT pour l'auth
-
-#### Express
-\`\`\`
-src/
-  controllers/         → Handlers de routes
-  services/            → Logique métier
-  middlewares/         → Middlewares (auth, error, etc.)
-  routes/              → Définition des routes
-  models/              → Modèles DB
-  utils/               → Helpers
-  app.js (ou app.ts)   → Configuration Express
-  server.js            → Point d'entrée
-\`\`\`
-- Architecture MVC ou modulaire
-- Middleware chain : \`app.use()\`
-- Error handler centralisé
-- \`express.Router()\` pour grouper les routes
-
-#### Fastify
-\`\`\`
-src/
-  plugins/             → Plugins Fastify
-  routes/              → Routes avec schemas
-  schemas/             → JSON Schema (validation)
-  services/            → Logique métier
-  server.js            → Point d'entrée
-\`\`\`
-- Schemas JSON pour validation (rapide)
-- Plugins encapsulés (\`fastify-plugin\`)
-- Sérialisation/désérialisation optimisée
-- Hooks : \`onRequest\`, \`preHandler\`, \`onResponse\`
-
-#### Hono
-\`\`\`
-src/
-  routes/              → Routes Hono
-  middleware/          → Middlewares
-  index.ts             → Point d'entrée (app = new Hono())
-\`\`\`
-- Ultra-léger, compatible Cloudflare Workers, Bun, Node, Deno
-- API similaire à Express mais typée
-- Validators natifs (Zod, Valibot)
-- RPC type-safe avec \`hono/client\`
-
-#### Koa
-\`\`\`
-src/
-  routes/              → Routes
-  middlewares/         → Async middlewares
-  services/            → Logique
-  app.js               → new Koa()
-\`\`\`
-- Middlewares async/await natifs
-- \`ctx\` (context) au lieu de req/res
-- Composition via \`koa-compose\`
-
-#### AdonisJS
-\`\`\`
-app/
-  controllers/
-  models/              → Lucid ORM
-  middleware/
-  validators/          → VineJS
-start/
-  routes.ts
-config/
-\`\`\`
-- Framework full-stack "batteries-included"
-- Lucid ORM (similaire à Eloquent Laravel)
-- VineJS pour validation
-- Ace CLI pour commandes
-
-#### tRPC
-\`\`\`
-server/
-  routers/             → Routers tRPC
-    appRouter.ts
-  trpc.ts              → Init tRPC + context
-client/
-  trpc.ts              → Client tRPC (proxy typé)
-\`\`\`
-- API type-safe end-to-end (partage les types)
-- Souvent utilisé avec Next.js ou React
-- \`createTRPCProxyClient\` côté client
-
-#### GraphQL (Apollo / Yoga)
-\`\`\`
-src/
-  schema/              → Schema SDL (.graphql) ou code-first
-  resolvers/           → Resolvers par type
-  datasources/         → Sources de données
-  server.ts            → Apollo Server / Yoga
-\`\`\`
-- Code-first : \`type-graphql\` ou \`@nestjs/graphql\`
-- SDL-first : fichiers \`.graphql\`
-- DataLoader pour éviter N+1
-
----
-
-## Règles TypeScript (si détecté)
-
-### 1. Typage strict
-- Pas de \`any\` sauf cas exceptionnel justifié
-- Types explicites sur props, paramètres, retours
-- Interfaces pour objets complexes, \`type\` pour unions
-- \`satisfies\`, \`as const\`, \`Partial<T>\`, \`Record<K,V>\` quand pertinent
-
-### 2. Imports de types
-- Utilise \`import type { X }\` pour les types purs
-- Réduit la taille du bundle (tree-shaking)
-
-### 3. Unions vs enums
-\`\`\`ts
-// ✅ Recommandé
-type Statut = 'actif' | 'inactif' | 'en_attente';
-
-// ❌ À éviter
-enum Statut { Actif, Inactif }
-\`\`\`
-
----
-
-## 🎯 Règles de style universelles
-
-### Ordre des imports
-1. Framework core (React, Angular, Vue, Express, NestJS...)
-2. Librairies tierces (lodash, axios, zod)
-3. Composants / Modules internes
-4. Stores / Services
-5. Types / Interfaces (\`import type\`)
-6. Utilitaires
-7. Icônes / Assets
-
-### Nommage
-| Élément | Frontend JS/TS | Backend Node | HTML/JS |
-|---|---|---|---|
-| Composant/Fichier | \`PascalCase.tsx\` | \`camelCase.controller.ts\` | \`kebab-case.js\` |
-| Utilitaire | \`camelCase.ts\` | \`camelCase.service.ts\` | \`camelCase.js\` |
-| Variable | camelCase | camelCase | camelCase |
-| Constante | UPPER_SNAKE_CASE | UPPER_SNAKE_CASE | UPPER_SNAKE_CASE |
-| Type/Interface | PascalCase | PascalCase | JSDoc |
-| Route/endpoint | kebab-case | kebab-case | — |
-
-### CSS / Styling (frontend uniquement)
-| Framework | Approche recommandée |
-|---|---|
-| Next.js / React | Tailwind CSS + shadcn/ui |
-| Angular | SCSS scoped dans le composant |
-| Vue.js | Tailwind OU \`<style scoped>\` |
-| Svelte | Styles scoped natifs OU Tailwind |
-| HTML/JS | CSS classique avec variables CSS + BEM |
-
----
-
-## 📦 Librairies standards par framework
-
-### Next.js / React
-- **Routing :** next/link, next/navigation
-- **État :** zustand, @tanstack/react-query
-- **Formulaires :** react-hook-form + zod
-- **UI :** shadcn/ui, @radix-ui
-- **Icônes :** lucide-react
-- **Toast :** sonner
-- **Animations :** framer-motion
-
-### Angular
-- **Routing :** @angular/router
-- **État :** NgRx / services + signals
-- **Formulaires :** @angular/forms
-- **UI :** Angular Material, PrimeNG
-- **Icônes :** @angular/material/icon
-
-### Vue.js
-- **Routing :** vue-router
-- **État :** pinia
-- **Formulaires :** vee-validate + zod
-- **UI :** Vuetify, Naive UI, shadcn-vue
-
-### NestJS
-- **Validation :** class-validator, class-transformer
-- **ORM :** @prisma/client (préféré), typeorm
-- **Auth :** @nestjs/jwt, passport, bcrypt
-- **Config :** @nestjs/config
-- **Swagger :** @nestjs/swagger
-
-### Express / Fastify / Koa / Hono
-- **Validation :** zod (recommandé), joi, yup
-- **Auth :** jsonwebtoken, bcrypt, passport
-- **ORM :** prisma, drizzle, typeorm, knex
-- **Logging :** pino (recommandé), winston
-- **Validation env :** dotenv + zod
-- **Rate limit :** express-rate-limit, @fastify/rate-limit
-- **CORS :** cors, @fastify/cors
-- **Compression :** compression, @fastify/compress
-- **Upload :** multer, @fastify/multipart
-
-### HTML/JS pur
-- **Pas de dépendances** si possible
-- **DOM :** querySelector, addEventListener
-- **Fetch :** API fetch native
-- **Storage :** localStorage / sessionStorage
-
----
-
-## 💻 RÈGLES DU CODE
+# RÈGLES DU CODE
 
 ## 1. Complétude absolue
 - Code **COMPLET**, pas de TODO, pas de "à compléter", pas de "..."
@@ -773,51 +846,19 @@ Chaque fonction asynchrone DOIT avoir :
 - Feedback utilisateur (toast, error state)
 - Log approprié (pas de \`console.log\` en production)
 
-## 5. Backend Node.js — Bonnes pratiques
-- **Validation des entrées** : TOUJOURS valider les body/params/query (Zod, class-validator, JSON Schema)
-- **Error handler centralisé** : middleware qui catch toutes les erreurs
-- **HTTP status codes corrects** : 200, 201, 400, 401, 403, 404, 500
-- **RESTful** : noms de routes au pluriel, verbes HTTP corrects
-- **Pagination** pour les listes longues
-- **Ne JAMAIS exposer** : stack trace, credentials, variables d'env en production
-
-## 6. Sécurité
+## 5. Sécurité
 - **JAMAIS** de clé API, secret, mot de passe en dur (utilise \`.env\`)
 - **JAMAIS** de \`dangerouslySetInnerHTML\` sans sanitization
 - **TOUJOURS** hasher les mots de passe (bcrypt, argon2)
 - **TOUJOURS** valider et échapper les entrées utilisateur
 - **JAMAIS** de SQL brut sans paramètres préparés (risque d'injection)
 
-## 7. Performance
-- Pas de re-renders inutiles (React.memo, useCallback, useMemo)
-- Images optimisées (\`next/image\` obligatoire en Next.js)
-- Lazy loading si pertinent
-- En backend : caching (Redis), pagination, indexation DB
-
-## 8. Installation de dépendances
+## 6. Installation de dépendances
 Si le code nécessite un nouveau package, ajoute UNE action au début :
-
-\`\`\`markdown
-## 📦 Dépendance à installer
-
-Avant d'appliquer les actions, exécute dans le terminal :
 
 \`\`\`bash
 npm install nom-du-package
 \`\`\`
-\`\`\`
-
-## 9. Fichiers multiples
-Ordre recommandé :
-1. Dossiers (\`mkdir\`)
-2. Types / interfaces / DTOs
-3. Services / API calls
-4. Stores (Zustand/Pinia)
-5. Hooks / Composables
-6. Middlewares / Guards (backend)
-7. Controllers / Routes (backend)
-8. Composants UI (frontend)
-9. Pages / routes
 
 ---
 
@@ -846,29 +887,18 @@ Tu ne dois **JAMAIS** :
 
 ---
 
-# ⚠️ GESTION DES INCERTITUDES
-
-Si une information te manque ou est ambiguë :
-
-1. **Signale-le clairement** dans l'ÉTAPE 1 (Analyse)
-2. Liste les hypothèses que tu fais
-3. Propose les questions à clarifier
-4. Ne devine JAMAIS d'informations critiques (structure DB, routes API, etc.)
-
----
-
-# 🎨 TON ET STYLE
+# TON ET STYLE
 
 - **Professionnel** mais accessible
 - **Direct** — pas de "Bonjour, je suis une IA..."
 - **Tutoiement** (tu t'adresses au développeur)
 - **Concis** — chaque phrase apporte de la valeur
 - **Émojis** : UNIQUEMENT dans les titres Markdown (\`## 🔍 Analyse\`), JAMAIS dans le code
-- **Langue** : français par défaut, sauf si l'utilisateur écrit en anglais
+- **Langue** : français par défaut, sauf si l'utilisateur écrit en anglais ou dans une autre langue
 
 ---
 
-# 🔄 RAPPEL FINAL
+# RAPPEL FINAL
 
 Tu travailles sur la tâche **"${task.titre}"** du projet **"${task.projet.titre}"**.
 
@@ -879,6 +909,7 @@ Tu travailles sur la tâche **"${task.titre}"** du projet **"${task.projet.titre
 - [ ] J'ai analysé la stack (package.json si fourni)
 - [ ] J'ai détecté le framework (Next / Angular / Vue / NestJS / Express / Fastify / Koa / Hono / HTML pur...)
 - [ ] J'ai détecté le langage (TypeScript ou JavaScript)
+- [ ] J'ai analysé les images jointes (si présentes)
 - [ ] Mon ÉTAPE 1 (Analyse) est rédigée
 - [ ] Mon ÉTAPE 2 (Plan) liste toutes les actions dans le bon ordre
 - [ ] J'ai créé les dossiers nécessaires avec \`mkdir\` AVANT les fichiers
@@ -892,256 +923,22 @@ Tu travailles sur la tâche **"${task.titre}"** du projet **"${task.projet.titre
 `;
   }
 
-  private async appelerGroq(
-    system: string,
-    messages: {
-      role: 'user' | 'assistant';
-      content: string;
-    }[],
-  ): Promise<string> {
-    const groqKey = process.env.GROQ_API_KEY;
-
-    if (!groqKey) {
-      throw new Error('GROQ_API_KEY non configurée');
-    }
-
-    let derniereErreur: Error | null = null;
-
-    for (const modele of this.modelesGroq) {
-      try {
-        this.logger.debug(`Tentative Groq avec ${modele}`);
-
-        const response = await fetch(this.groqApiUrl, {
-          method: 'POST',
-
-          headers: {
-            Authorization: `Bearer ${groqKey}`,
-            'Content-Type': 'application/json',
-          },
-
-          body: JSON.stringify({
-            model: modele,
-
-            messages: [
-              {
-                role: 'system',
-                content: system,
-              },
-
-              ...messages,
-            ],
-
-            temperature: 0.7,
-          }),
-        });
-
-        if (response.status === 429) {
-          this.logger.warn(`Rate limit Groq : ${modele}`);
-
-          continue;
-        }
-
-        if (!response.ok) {
-          const errorText = await response.text();
-
-          throw new Error(`Groq error (${response.status}): ${errorText}`);
-        }
-
-        const data = await response.json();
-
-        const contenu = data?.choices?.[0]?.message?.content;
-
-        if (!contenu) {
-          throw new Error('Réponse Groq vide');
-        }
-
-        this.logger.log(`Succès Groq avec ${modele}`);
-
-        return contenu.trim();
-      } catch (error) {
-        derniereErreur =
-          error instanceof Error ? error : new Error(String(error));
-
-        this.logger.error(`Échec Groq ${modele}: ${derniereErreur.message}`);
-      }
-    }
-
-    throw derniereErreur ?? new Error('Tous les modèles Groq ont échoué');
-  }
-
-  private async appelerOpenRouter(
-    system: string,
-    messages: {
-      role: 'user' | 'assistant';
-      content: string;
-    }[],
-  ): Promise<string> {
-    const openRouterKey = process.env.OPENROUTER_API_KEY;
-
-    if (!openRouterKey) {
-      throw new Error('OPENROUTER_API_KEY non configurée');
-    }
-
-    let derniereErreur: Error | null = null;
-
-    for (const modele of this.modelesOpenRouter) {
-      try {
-        this.logger.debug(`Tentative OpenRouter avec ${modele}`);
-
-        const response = await fetch(this.apiUrl, {
-          method: 'POST',
-
-          headers: {
-            Authorization: `Bearer ${openRouterKey}`,
-
-            'Content-Type': 'application/json',
-
-            'HTTP-Referer': process.env.APP_URL || 'http://localhost:3001',
-
-            'X-Title': 'WorkPilot',
-          },
-
-          body: JSON.stringify({
-            model: modele,
-
-            messages: [
-              {
-                role: 'system',
-                content: system,
-              },
-
-              ...messages,
-            ],
-
-            temperature: 0.7,
-          }),
-        });
-
-        if (response.status === 429) {
-          this.logger.warn(`Rate limit OpenRouter : ${modele}`);
-
-          continue;
-        }
-
-        if (response.status === 404 || response.status === 400) {
-          const errorText = await response.text();
-
-          this.logger.warn(
-            `Modèle OpenRouter indisponible ${modele}: ${errorText}`,
-          );
-
-          continue;
-        }
-
-        if (!response.ok) {
-          const errorText = await response.text();
-
-          throw new Error(
-            `OpenRouter error (${response.status}): ${errorText}`,
-          );
-        }
-
-        const data = await response.json();
-
-        const contenu = data?.choices?.[0]?.message?.content;
-
-        if (!contenu) {
-          throw new Error('Réponse OpenRouter vide');
-        }
-
-        this.logger.log(`Succès OpenRouter avec ${modele}`);
-
-        return contenu.trim();
-      } catch (error) {
-        derniereErreur =
-          error instanceof Error ? error : new Error(String(error));
-
-        this.logger.error(
-          `Échec OpenRouter ${modele}: ${derniereErreur.message}`,
-        );
-      }
-    }
-
-    throw derniereErreur ?? new Error('Tous les modèles OpenRouter ont échoué');
-  }
-
-  private async appelerIA(
-    system: string,
-    messages: {
-      role: 'user' | 'assistant';
-      content: string;
-    }[],
-  ): Promise<string> {
-    let derniereErreur: Error | null = null;
-
-    if (process.env.GROQ_API_KEY) {
-      try {
-        return await this.appelerGroq(system, messages);
-      } catch (error) {
-        derniereErreur =
-          error instanceof Error ? error : new Error(String(error));
-
-        this.logger.warn(`Groq indisponible. Passage à OpenRouter.`);
-      }
-    }
-
-    if (process.env.OPENROUTER_API_KEY) {
-      try {
-        return await this.appelerOpenRouter(system, messages);
-      } catch (error) {
-        derniereErreur =
-          error instanceof Error ? error : new Error(String(error));
-      }
-    }
-
-    throw new Error(
-      `Tous les moteurs IA ont échoué. ${derniereErreur?.message || ''}`,
-    );
-  }
-
-  private async obtenirConversation(tacheId: number) {
-    let conversation = await this.databaseService.assistanceIA.findUnique({
-      where: {
-        tacheId,
-      },
-
-      include: {
-        messages: {
-          orderBy: {
-            createdAt: 'asc',
-          },
-        },
-      },
-    });
-
-    if (!conversation) {
-      conversation = await this.databaseService.assistanceIA.create({
-        data: {
-          tacheId,
-        },
-
-        include: {
-          messages: {
-            orderBy: {
-              createdAt: 'asc',
-            },
-          },
-        },
-      });
-    }
-
-    return conversation;
-  }
-
   async chatWithTask(
     tacheId: number,
     userId: number,
-    userMessage: string,
+    userMessage?: string,
+    images?: string[],
     projectStructure?: string,
     relevantFiles?: { path: string; content: string }[],
   ) {
-    if (!userMessage?.trim()) {
-      throw new ForbiddenException('Le message ne peut pas être vide.');
+    const hasMessage =
+      typeof userMessage === 'string' && userMessage.trim().length > 0;
+    const hasImages = Array.isArray(images) && images.length > 0;
+
+    if (!hasMessage && !hasImages) {
+      throw new ForbiddenException(
+        'Tu dois envoyer un message ou au moins une image.',
+      );
     }
 
     const tache = await this.databaseService.tache.findUnique({
@@ -1149,19 +946,18 @@ Tu travailles sur la tâche **"${task.titre}"** du projet **"${task.projet.titre
       include: { projet: true, assignee: true },
     });
 
-    if (!tache) {
-      throw new NotFoundException('Tâche introuvable');
-    }
-
+    if (!tache) throw new NotFoundException('Tâche introuvable');
     this.verifierAccesIA(tache, userId);
 
+    const urlsValides = (images ?? []).filter(estUrlImageValide);
     const conversation = await this.obtenirConversation(tacheId);
 
     await this.databaseService.messageIA.create({
       data: {
         conversationId: conversation.id,
         role: 'utilisateur',
-        contenu: userMessage.trim(),
+        contenu: (userMessage ?? '').trim() || '[Image jointe]',
+        images: urlsValides,
       },
     });
 
@@ -1176,23 +972,25 @@ Tu travailles sur la tâche **"${task.titre}"** du projet **"${task.projet.titre
       relevantFiles,
     );
 
-    const messages = historique
-      .filter(
-        (message) =>
-          message.role === 'utilisateur' || message.role === 'assistant',
-      )
+    const avecVision = historique.some((m) => this.contientImages(m));
+
+    const messages: AIMessage[] = historique
+      .filter((m) => m.role === 'utilisateur' || m.role === 'assistant')
       .map((message) => ({
         role:
           message.role === 'utilisateur'
             ? ('user' as const)
             : ('assistant' as const),
-        content: message.contenu,
+        content:
+          message.role === 'utilisateur'
+            ? this.construireContenuUser(message.contenu, message.images)
+            : message.contenu,
       }));
 
     let aiResponse: string;
 
     try {
-      aiResponse = await this.appelerIA(systemPrompt, messages);
+      aiResponse = await this.appelerIA(systemPrompt, messages, avecVision);
     } catch (error) {
       this.logger.error(`Erreur IA pour la tâche ${tacheId}`, error);
       throw new Error("Impossible d'obtenir une réponse de l'IA.");
@@ -1222,121 +1020,79 @@ Tu travailles sur la tâche **"${task.titre}"** du projet **"${task.projet.titre
         id: savedMessage.id,
         role: savedMessage.role,
         contenu: savedMessage.contenu,
+        images: [],
         createdAt: savedMessage.createdAt,
       },
     };
   }
+
   async getTaskMessages(tacheId: number, userId: number) {
     const tache = await this.databaseService.tache.findUnique({
-      where: {
-        id: tacheId,
-      },
-
-      include: {
-        assignee: true,
-      },
+      where: { id: tacheId },
+      include: { assignee: true },
     });
 
-    if (!tache) {
-      throw new NotFoundException('Tâche introuvable');
-    }
-
+    if (!tache) throw new NotFoundException('Tâche introuvable');
     this.verifierAccesIA(tache, userId);
 
     const conversation = await this.databaseService.assistanceIA.findUnique({
-      where: {
-        tacheId,
-      },
-
-      include: {
-        messages: {
-          orderBy: {
-            createdAt: 'asc',
-          },
-        },
-      },
+      where: { tacheId },
+      include: { messages: { orderBy: { createdAt: 'asc' } } },
     });
 
     if (!conversation) {
-      return {
-        conversationId: null,
-        tacheId,
-        messages: [],
-      };
+      return { conversationId: null, tacheId, messages: [] };
     }
 
     return {
       conversationId: conversation.id,
-
       tacheId,
-
       messages: conversation.messages.map((message) => ({
         id: message.id,
         role: message.role,
         contenu: message.contenu,
+        images: message.images ?? [],
         createdAt: message.createdAt,
       })),
     };
   }
 
   async getConversation(tacheId: number, userId: number) {
-    // Vérifier la tâche
     const tache = await this.databaseService.tache.findUnique({
-      where: {
-        id: tacheId,
-      },
-
-      include: {
-        projet: true,
-        assignee: true,
-      },
+      where: { id: tacheId },
+      include: { projet: true, assignee: true },
     });
 
-    if (!tache) {
-      throw new NotFoundException('Tâche introuvable');
-    }
-
-    // Vérification sécurité
+    if (!tache) throw new NotFoundException('Tâche introuvable');
     this.verifierAccesIA(tache, userId);
 
-    // Récupération conversation
     const conversation = await this.databaseService.assistanceIA.findUnique({
-      where: {
-        tacheId,
-      },
-
-      include: {
-        messages: {
-          orderBy: {
-            createdAt: 'asc',
-          },
-        },
-      },
+      where: { tacheId },
+      include: { messages: { orderBy: { createdAt: 'asc' } } },
     });
 
     if (!conversation) {
       return {
         conversationId: null,
-
-        tache: {
-          id: tache.id,
-          titre: tache.titre,
-        },
-
+        tache: { id: tache.id, titre: tache.titre },
         messages: [],
       };
     }
 
     return {
       conversationId: conversation.id,
-
       tache: {
         id: tache.id,
         titre: tache.titre,
         statut: tache.statut,
       },
-
-      messages: conversation.messages,
+      messages: conversation.messages.map((message) => ({
+        id: message.id,
+        role: message.role,
+        contenu: message.contenu,
+        images: message.images ?? [],
+        createdAt: message.createdAt,
+      })),
     };
   }
 }

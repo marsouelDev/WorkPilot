@@ -22,6 +22,7 @@ import { LivrableFinalService } from './livrable-final/livrable-final.service';
 import { LivrableFinalModule } from './livrable-final/livrable-final.module';
 import { UploadService } from './upload/upload.service';
 import { UploadModule } from './upload/upload.module';
+import { DashboardModule } from './dashboard/dashboard.module';
 
 @Module({
   imports: [
@@ -44,6 +45,7 @@ import { UploadModule } from './upload/upload.module';
     PullRequestsModule,
     LivrableFinalModule,
     UploadModule,
+    DashboardModule,
   ],
   controllers: [AppController],
   providers: [
