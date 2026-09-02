@@ -75,7 +75,7 @@ export default function ProfileOverview() {
           50% { transform: scale(1.15); opacity: 0.85; }
         }
 
-        /* ✅ NOUVELLES ANIMATIONS — SECTION GITHUB */
+        /* NOUVELLES ANIMATIONS — SECTION GITHUB */
 
         @keyframes wp-divider-in {
           from { transform: scaleX(0); opacity: 0; }
@@ -182,25 +182,34 @@ export default function ProfileOverview() {
         </div>
 
         <div className="wp-divider-in mt-6 h-px bg-border" />
-
-        <div className="wp-section-in pt-5">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-            <div className="flex-1">
-              <p className="text-sm font-medium" style={{ color: "#0F172A" }}>
-                Intégrations
-              </p>
-
-              <p className="mt-1 text-xs text-muted-foreground">
-                Connectez votre compte GitHub pour être invité automatiquement
-                sur les dépôts de vos projets.
-              </p>
-            </div>
-
-            <div className="wp-github-in w-full sm:w-72">
-              <GithubConnect />
-            </div>
-          </div>
-        </div>
+{user?.role === "admin" ? (
+  <div className="wp-section-in pt-5">
+    <div className="rounded-lg border border-cyan-200 bg-cyan-50 p-4 text-sm text-cyan-700 dark:border-cyan-800 dark:bg-cyan-950/30 dark:text-cyan-400">
+      <p className="font-medium">Mode Administrateur</p>
+      <p className="mt-1 text-xs">
+        Les intégrations GitHub ne sont pas nécessaires pour votre compte
+        administrateur.
+      </p>
+    </div>
+  </div>
+) : (
+  <div className="wp-section-in pt-5">
+    <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+      <div className="flex-1">
+        <p className="text-sm font-medium" style={{ color: "#0F172A" }}>
+          Intégrations
+        </p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Connectez votre compte GitHub pour être invité automatiquement
+          sur les dépôts de vos projets.
+        </p>
+      </div>
+      <div className="wp-github-in w-full sm:w-72">
+        <GithubConnect />
+      </div>
+    </div>
+  </div>
+)}
       </CardContent>
     </Card>
   );

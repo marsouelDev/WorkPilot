@@ -43,7 +43,7 @@ export default function Navigation({
     },
     {
       key: "members" as const,
-      label: "Utilisateurs",
+      label: "Membres",
       href: `/projects/${projetId}/membres`,
       icon: Users,
     },

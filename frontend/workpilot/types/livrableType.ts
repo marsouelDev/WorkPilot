@@ -5,9 +5,9 @@ export interface Livrable {
   tacheId: number;
   fichierUrl: string;
   statut: StatutLivrable;
+  motifRejet?: string | null;
   createdAt: string;
   updatedAt: string;
-  motifRejet?: string;
   tache?: {
     id: number;
     titre: string;

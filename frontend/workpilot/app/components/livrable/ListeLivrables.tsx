@@ -6,6 +6,7 @@ import {
   CalendarDays,
   CheckCircle2,
   ExternalLink,
+  Eye,
   FileText,
   Inbox,
   Loader2,
@@ -17,6 +18,13 @@ import { useAuthStore } from "@/stores/authStore";
 import { useLivrableStore } from "@/stores/livrableStore";
 import type { Livrable, StatutLivrable } from "@/types/livrableType";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import RejeterLivrableDialog from "./RejeterLivrableDialog";
 
 const STATUTS: Record<
@@ -61,10 +69,15 @@ export default function ListeLivrables({ projetId }: ListeLivrablesProps) {
   const [userRole, setUserRole] = useState<UserRole>(null);
   const [isCheckingRole, setIsCheckingRole] = useState(true);
 
+  /* Dialog de rejet */
   const [dialogRejetOpen, setDialogRejetOpen] = useState(false);
   const [livrableARejeter, setLivrableARejeter] = useState<Livrable | null>(
     null,
   );
+
+  /* ✅ Dialog de détail du rejet */
+  const [detailRejetOpen, setDetailRejetOpen] = useState(false);
+  const [livrableDetail, setLivrableDetail] = useState<Livrable | null>(null);
 
   /* Récupération du rôle de l'utilisateur dans le projet */
   useEffect(() => {
@@ -86,24 +99,24 @@ export default function ListeLivrables({ projetId }: ListeLivrablesProps) {
 
         const projet = await res.json();
 
-        /* Vérifie si l'utilisateur est le créateur */
         if (projet.createurId === user.id) {
           setUserRole("createur");
           setIsCheckingRole(false);
           return;
         }
 
-        /* Vérifie si l'utilisateur est membre avec rôle relecteur */
         const membre = projet.membres?.find(
           (m: { utilisateurId: number; role: string }) =>
             m.utilisateurId === user.id,
         );
 
-        if (membre) {
-          setUserRole(membre.role === "relecteur" ? "relecteur" : "membre");
-        } else {
-          setUserRole(null);
-        }
+        setUserRole(
+          membre
+            ? membre.role === "relecteur"
+              ? "relecteur"
+              : "membre"
+            : null,
+        );
       } catch (err) {
         console.error("Erreur vérification rôle:", err);
         setUserRole(null);
@@ -121,7 +134,7 @@ export default function ListeLivrables({ projetId }: ListeLivrablesProps) {
     }
   }, [token, projetId, chargerParProjet]);
 
-  /*  Gestion des erreurs  */
+  /* Gestion des erreurs */
   useEffect(() => {
     if (error) {
       toast.error(error);
@@ -176,13 +189,18 @@ export default function ListeLivrables({ projetId }: ListeLivrablesProps) {
       toast.success(
         `Livrable validé — la tâche "${livrable.tache?.titre}" est terminée`,
       );
-    } else {
     }
   };
 
   const handleOuvrirRejet = (livrable: Livrable) => {
     setLivrableARejeter(livrable);
     setDialogRejetOpen(true);
+  };
+
+  /* ✅ Ouverture du détail du rejet */
+  const handleOuvrirDetail = (livrable: Livrable) => {
+    setLivrableDetail(livrable);
+    setDetailRejetOpen(true);
   };
 
   if (isCheckingRole) {
@@ -235,7 +253,7 @@ export default function ListeLivrables({ projetId }: ListeLivrablesProps) {
           />
         </div>
 
-        <div className="flex items-center gap-2 ">
+        <div className="flex items-center gap-2">
           <div className="flex rounded-md border border-slate-200 bg-white p-1">
             {(
               [
@@ -296,7 +314,7 @@ export default function ListeLivrables({ projetId }: ListeLivrablesProps) {
             return (
               <div
                 key={livrable.id}
-                className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-[#6366F1]/40 hover:shadow "
+                className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-[#6366F1]/40 hover:shadow"
               >
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                   <div className="min-w-0 flex-1 space-y-2">
@@ -350,13 +368,6 @@ export default function ListeLivrables({ projetId }: ListeLivrablesProps) {
                         )}
                       </span>
                     </div>
-
-                    {livrable.statut === "rejete" && livrable.motifRejet && (
-                      <div className="rounded-lg border border-red-200 bg-red-50 p-2.5 text-xs text-red-800">
-                        <p className="font-semibold">Motif du rejet :</p>
-                        <p className="mt-0.5">{livrable.motifRejet}</p>
-                      </div>
-                    )}
                   </div>
 
                   <div className="flex shrink-0 flex-wrap items-center gap-2">
@@ -401,11 +412,24 @@ export default function ListeLivrables({ projetId }: ListeLivrablesProps) {
                       </span>
                     )}
 
+                    {/* ✅ REJETÉ : badge + bouton Voir détail (TOUJOURS visible) */}
                     {livrable.statut === "rejete" && (
-                      <span className="inline-flex h-8 items-center gap-1 rounded-md border border-red-200 bg-red-50 px-2.5 text-[11px] font-semibold text-red-600">
-                        <XCircle className="h-3 w-3" />
-                        Refusé
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="inline-flex h-8 items-center gap-1 rounded-md border border-red-200 bg-red-50 px-2.5 text-[11px] font-semibold text-red-600">
+                          <XCircle className="h-3 w-3" />
+                          Refusé
+                        </span>
+
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleOuvrirDetail(livrable)}
+                          className="h-8 gap-1.5 border-slate-200 text-xs text-slate-600 hover:border-[#6366F1]/40 hover:bg-slate-50 hover:text-[#6366F1]"
+                        >
+                          <Eye className="h-3.5 w-3.5" />
+                          Voir détail
+                        </Button>
+                      </div>
                     )}
                   </div>
                 </div>
@@ -415,6 +439,7 @@ export default function ListeLivrables({ projetId }: ListeLivrablesProps) {
         </div>
       )}
 
+      {/* ===== DIALOG DE REJET ===== */}
       {livrableARejeter && (
         <RejeterLivrableDialog
           livrableId={livrableARejeter.id}
@@ -431,6 +456,75 @@ export default function ListeLivrables({ projetId }: ListeLivrablesProps) {
           }}
         />
       )}
+
+      {/* ===== ✅ DIALOG DÉTAIL DU REJET ===== */}
+      <Dialog
+        open={detailRejetOpen}
+        onOpenChange={(open) => {
+          setDetailRejetOpen(open);
+          if (!open) setLivrableDetail(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <XCircle className="h-5 w-5" />
+              Livrable rejeté
+            </DialogTitle>
+            <DialogDescription>
+              {livrableDetail?.tache?.titre ?? "Tâche inconnue"}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            {/* Motif du rejet */}
+            <div className="rounded-lg border border-red-200 bg-red-50 p-4">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-red-500">
+                Motif du rejet
+              </p>
+              <p className="mt-2 text-sm leading-relaxed text-red-800">
+                {livrableDetail?.motifRejet ?? "Aucun motif renseigné."}
+              </p>
+            </div>
+
+            {/* Infos complémentaires */}
+            <div className="space-y-2.5 text-xs text-slate-500">
+              {livrableDetail?.tache?.assignee && (
+                <p className="flex items-center gap-2">
+                  <User className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                  Auteur :{" "}
+                  <span className="font-medium text-slate-700">
+                    {livrableDetail.tache.assignee.prenom}{" "}
+                    {livrableDetail.tache.assignee.nom}
+                  </span>
+                </p>
+              )}
+
+              <p className="flex items-center gap-2">
+                <CalendarDays className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                Soumis le{" "}
+                {livrableDetail
+                  ? new Date(livrableDetail.createdAt).toLocaleDateString(
+                      "fr-FR",
+                    )
+                  : ""}
+              </p>
+
+              {livrableDetail?.fichierUrl && (
+                <a
+                  href={livrableDetail.fichierUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-center gap-2 text-[#6366F1] hover:underline"
+                >
+                  <ExternalLink className="h-3.5 w-3.5 shrink-0" />
+                  Voir le fichier soumis
+                </a>
+              )}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

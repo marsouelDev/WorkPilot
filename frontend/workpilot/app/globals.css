@@ -283,9 +283,9 @@
   display: none;
 }
 
-/* ============================================================
+/* 
    🎬 SYSTÈME D'ANIMATIONS PROFESSIONNEL
-============================================================ */
+ */
 
 /* Entrée : fade + élévation + léger scale + dé-flou (style Linear) */
 @keyframes fade-up {

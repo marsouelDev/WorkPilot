@@ -196,7 +196,10 @@ export class LivrableFinalService {
 
     const livrableMaj = await this.databaseService.livrableFinal.update({
       where: { id: livrableId },
-      data: { statut: 'rejete' },
+      data: {
+        statut: 'rejete',
+        motifRejet: dto.motif,
+      },
       include: { tache: true },
     });
 

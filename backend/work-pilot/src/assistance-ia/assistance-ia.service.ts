@@ -19,7 +19,7 @@ type AIMessage = {
 };
 
 const MAX_TOKENS = {
-  gemini: 8192,
+  gemini: 65536,
   mistral: 8192,
   groq: 8192,
   openrouter: 16384,
@@ -57,11 +57,20 @@ export class AssistanceIaService {
     'https://api.groq.com/openai/v1/chat/completions';
   private readonly openRouterApiUrl =
     'https://openrouter.ai/api/v1/chat/completions';
-  private readonly geminiApiUrl =
-    'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
+  private readonly geminiApiBase =
+    'https://generativelanguage.googleapis.com/v1beta/models';
   private readonly mistralApiUrl = 'https://api.mistral.ai/v1/chat/completions';
 
-  /*  Modèles Groq : TEXTE  */
+  /* Modèles Gemini — TEXTE + VISION (fallback automatique) */
+  private readonly modelesGemini = [
+    'gemini-2.5-flash',
+    'gemini-2.5-flash-lite',
+    'gemini-2.0-flash',
+    'gemini-2.0-flash-lite',
+    'gemini-1.5-flash-8b',
+  ];
+
+  /* Modèles Groq : TEXTE */
   private readonly modelesGroq = [
     'llama-3.3-70b-versatile',
     'llama-3.1-8b-instant',
@@ -71,14 +80,14 @@ export class AssistanceIaService {
     'qwen/qwen3-32b',
   ];
 
-  /*  Modèles Groq : VISION  */
+  /* Modèles Groq : VISION */
   private readonly modelesGroqVision = [
     'llama-3.2-90b-vision-preview',
     'llama-3.2-11b-vision-preview',
     'llava-v1.5-7b-4096-preview',
   ];
 
-  /*  Modèles OpenRouter : TEXTE  */
+  /* Modèles OpenRouter : TEXTE */
   private readonly modelesOpenRouter = [
     'nvidia/nemotron-3-ultra-550b-a55b:free',
     'nvidia/nemotron-3-super-120b-a12b:free',
@@ -94,7 +103,7 @@ export class AssistanceIaService {
     'openrouter/free',
   ];
 
-  /*  Modèles OpenRouter : VISION  */
+  /* Modèles OpenRouter : VISION */
   private readonly modelesOpenRouterVision = [
     'google/gemma-4-31b-it:free',
     'google/gemma-4-26b-a4b-it:free',
@@ -106,7 +115,7 @@ export class AssistanceIaService {
     'openrouter/free',
   ];
 
-  /* Modèles Mistral : TEXTE  */
+  /* Modèles Mistral : TEXTE */
   private readonly modelesMistral = [
     'mistral-large-latest',
     'mistral-small-latest',
@@ -114,7 +123,7 @@ export class AssistanceIaService {
     'open-mistral-nemo',
   ];
 
-  /*  Modèles Mistral : VISION  */
+  /* Modèles Mistral : VISION */
   private readonly modelesMistralVision = [
     'pixtral-large-latest',
     'pixtral-12b-2409',
@@ -161,78 +170,110 @@ export class AssistanceIaService {
     const geminiKey = process.env.GEMINI_API_KEY;
     if (!geminiKey) throw new Error('GEMINI_API_KEY non configurée');
 
-    try {
-      const contents: Array<{
-        role: 'user' | 'model';
-        parts: Array<
-          { text: string } | { inlineData: { mimeType: string; data: string } }
-        >;
-      }> = [];
+    // Construit le contenu une seule fois (partagé entre tous les modèles)
+    const contents: Array<{
+      role: 'user' | 'model';
+      parts: Array<
+        { text: string } | { inlineData: { mimeType: string; data: string } }
+      >;
+    }> = [];
 
-      for (const msg of messages) {
-        if (msg.role === 'system') continue;
-        const role: 'user' | 'model' = msg.role === 'user' ? 'user' : 'model';
-        const parts: Array<
-          { text: string } | { inlineData: { mimeType: string; data: string } }
-        > = [];
+    for (const msg of messages) {
+      if (msg.role === 'system') continue;
+      const role: 'user' | 'model' = msg.role === 'user' ? 'user' : 'model';
+      const parts: Array<
+        { text: string } | { inlineData: { mimeType: string; data: string } }
+      > = [];
 
-        if (typeof msg.content === 'string') {
-          parts.push({ text: msg.content });
-        } else if (Array.isArray(msg.content)) {
-          for (const item of msg.content) {
-            if (item.type === 'text') {
-              parts.push({ text: item.text });
-            } else if (item.type === 'image_url') {
-              const img = await imageVersBase64(item.image_url.url);
-              if (img) {
-                parts.push({
-                  inlineData: {
-                    mimeType: img.mime,
-                    data: img.base64,
-                  },
-                });
-              }
+      if (typeof msg.content === 'string') {
+        parts.push({ text: msg.content });
+      } else if (Array.isArray(msg.content)) {
+        for (const item of msg.content) {
+          if (item.type === 'text') {
+            parts.push({ text: item.text });
+          } else if (item.type === 'image_url') {
+            const img = await imageVersBase64(item.image_url.url);
+            if (img) {
+              parts.push({
+                inlineData: { mimeType: img.mime, data: img.base64 },
+              });
             }
           }
         }
-
-        if (parts.length > 0) {
-          contents.push({ role, parts });
-        }
       }
 
-      const res = await fetch(`${this.geminiApiUrl}?key=${geminiKey}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          systemInstruction: { parts: [{ text: system }] },
-          contents,
-          generationConfig: {
-            temperature: 0.7,
-            maxOutputTokens: MAX_TOKENS.gemini,
-          },
-        }),
-      });
-
-      if (!res.ok) {
-        const errorText = await res.text();
-        throw new Error(`Gemini error (${res.status}): ${errorText}`);
+      if (parts.length > 0) {
+        contents.push({ role, parts });
       }
-
-      const data = await res.json();
-      const contenu = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-
-      if (!contenu) throw new Error('Réponse Gemini vide');
-
-      this.logger.log(
-        `✅ Succès Gemini 1.5 Flash (~${Math.ceil(contenu.length / 3)} tokens)`,
-      );
-      return contenu.trim();
-    } catch (error) {
-      const errMsg = error instanceof Error ? error.message : String(error);
-      this.logger.error(`Échec Gemini : ${errMsg}`);
-      throw new Error(`Gemini échoué : ${errMsg}`);
     }
+
+    const body = {
+      systemInstruction: { parts: [{ text: system }] },
+      contents,
+      generationConfig: {
+        temperature: 0.7,
+        maxOutputTokens: MAX_TOKENS.gemini,
+      },
+    };
+
+    // Fallback : essaie chaque modèle dans l'ordre
+    let derniereErreur: Error | null = null;
+
+    for (const modele of this.modelesGemini) {
+      try {
+        this.logger.debug(`Tentative Gemini avec ${modele}`);
+
+        const res = await fetch(
+          `${this.geminiApiBase}/${modele}:generateContent?key=${geminiKey}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          },
+        );
+
+        if (res.status === 429) {
+          this.logger.warn(`Rate limit Gemini : ${modele}, passage au suivant`);
+          continue;
+        }
+
+        if (res.status === 404) {
+          this.logger.warn(`Modèle Gemini indisponible : ${modele}`);
+          continue;
+        }
+
+        if (!res.ok) {
+          const errorText = await res.text();
+          throw new Error(
+            `Gemini ${modele} error (${res.status}): ${errorText}`,
+          );
+        }
+
+        const data = await res.json();
+        const contenu = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+
+        if (!contenu) {
+          // Parfois Gemini renvoie une réponse vide (sécurité, filtre)
+          const blockReason = data?.candidates?.[0]?.finishReason;
+          if (blockReason === 'SAFETY') {
+            this.logger.warn(`Blocage sécurité Gemini (${modele})`);
+            continue;
+          }
+          throw new Error('Réponse Gemini vide');
+        }
+
+        this.logger.log(
+          `Succès Gemini ${modele} (~${Math.ceil(contenu.length / 3)} tokens)`,
+        );
+        return contenu.trim();
+      } catch (error) {
+        derniereErreur =
+          error instanceof Error ? error : new Error(String(error));
+        this.logger.error(`Échec Gemini ${modele}: ${derniereErreur.message}`);
+      }
+    }
+
+    throw derniereErreur ?? new Error('Tous les modèles Gemini ont échoué');
   }
 
   private async appelerMistral(
@@ -297,6 +338,7 @@ export class AssistanceIaService {
 
     throw derniereErreur ?? new Error('Tous les modèles Mistral ont échoué');
   }
+
   private async appelerGroq(
     system: string,
     messages: AIMessage[],
@@ -443,7 +485,7 @@ export class AssistanceIaService {
   ): Promise<string> {
     let derniereErreur: Error | null = null;
 
-    if (avecVision && process.env.GEMINI_API_KEY) {
+    if (process.env.GEMINI_API_KEY) {
       try {
         return await this.appelerGemini(system, messages);
       } catch (error) {

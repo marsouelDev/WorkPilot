@@ -317,7 +317,6 @@ export default function IdePage() {
   const [nomBranche, setNomBranche] = useState("");
   const [dialogPr, setDialogPr] = useState(false);
   const [taches, setTaches] = useState<Tache[]>([]);
-  const [tachePr, setTachePr] = useState<number | "">("");
   const [titrePr, setTitrePr] = useState("");
 
   const [tacheIaId, setTacheIaId] = useState<number | null>(null);
@@ -1101,9 +1100,8 @@ export default function IdePage() {
       setIsSyncing(false);
     }
   };
-
   const handleCreerPr = async () => {
-    if (!token || !tachePr) return;
+    if (!token || !tacheIaId) return;
     setIsCreatingPr(true);
     try {
       const res = await fetch(`${API_URL}/pull-requests`, {
@@ -1113,7 +1111,7 @@ export default function IdePage() {
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          tacheId: tachePr,
+          tacheId: tacheIaId,
           branche: brancheActive,
           titre: titrePr || undefined,
         }),
@@ -1127,7 +1125,6 @@ export default function IdePage() {
       const pr = await res.json();
 
       setDialogPr(false);
-      setTachePr("");
       setTitrePr("");
 
       if (pr.url) {
@@ -1676,39 +1673,80 @@ export default function IdePage() {
       </Dialog>
 
       <Dialog open={dialogPr} onOpenChange={setDialogPr}>
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>Créer une Pull Request</DialogTitle>
-            <DialogDescription>
-              De « {brancheActive} » vers « {info?.brancheDefaut} ».
+            <DialogTitle className="text-xl">
+              Créer une Pull Request
+            </DialogTitle>
+            <DialogDescription className="wrap-break-word">
+              De «{" "}
+              <span className="font-semibold text-foreground">
+                {brancheActive}
+              </span>{" "}
+              » vers «{" "}
+              <span className="font-semibold text-foreground">
+                {info?.brancheDefaut}
+              </span>{" "}
+              ».
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-3">
-            <div>
-              <p className="mb-1 text-sm">Tâche liée</p>
-              <select
-                value={tachePr}
-                onChange={(e) => setTachePr(Number(e.target.value) || "")}
-                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-              >
-                <option value="">Sélectionner une tâche</option>
-                {Array.isArray(taches) &&
-                  taches.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.titre}
-                    </option>
-                  ))}
-              </select>
-            </div>
+          <div className="space-y-4">
+            {tacheIaId ? (
+              (() => {
+                const tacheCourante = taches.find((t) => t.id === tacheIaId);
+                return tacheCourante ? (
+                  <div>
+                    <p className="mb-1.5 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                      Tâche liée
+                    </p>
+                    <div className="flex items-start gap-3 rounded-lg border border-[#6366F1]/30 bg-[#6366F1]/5 p-3">
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#6366F1] text-white">
+                        <Code2 className="h-4 w-4" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="wrap-break-word text-sm font-semibold leading-snug text-foreground">
+                          {tacheCourante.titre}
+                        </p>
+
+                        <p className="mt-2 text-[11px] font-medium text-muted-foreground">
+                          Tâche #{tacheCourante.id} · Assignée à toi
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
+                    <p className="font-semibold">Tâche introuvable</p>
+                    <p className="mt-0.5 text-xs">
+                      La tâche #{tacheIaId} n&apos;existe plus. Ferme ce dialog
+                      et recharge la page.
+                    </p>
+                  </div>
+                );
+              })()
+            ) : (
+              <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800 dark:border-red-800 dark:bg-red-950/30 dark:text-red-300">
+                <p className="font-semibold">Aucune tâche assignée</p>
+                <p className="mt-0.5 text-xs">
+                  Tu dois avoir une tâche assignée pour créer une Pull Request.
+                </p>
+              </div>
+            )}
 
             <div>
-              <p className="mb-1 text-sm">Titre (optionnel)</p>
+              <label className="mb-1.5 block text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                Titre (optionnel)
+              </label>
               <Input
-                placeholder="Titre de la Pull Request"
+                placeholder="Titre de la Pull Request (défaut : titre de la tâche)"
                 value={titrePr}
                 onChange={(e) => setTitrePr(e.target.value)}
+                className="wrap-break-word"
               />
+              <p className="mt-1.5 text-[11px] text-muted-foreground">
+                Laisser vide pour utiliser le titre de la tâche.
+              </p>
             </div>
           </div>
 
@@ -1718,15 +1756,20 @@ export default function IdePage() {
             </Button>
             <Button
               onClick={handleCreerPr}
-              disabled={!tachePr || isCreatingPr}
+              disabled={!tacheIaId || isCreatingPr}
               className="bg-[#6366F1] text-white hover:bg-[#4f46e5]"
             >
               {isCreatingPr ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Création...
+                </>
               ) : (
-                <GitPullRequest className="h-4 w-4" />
+                <>
+                  <GitPullRequest className="h-4 w-4" />
+                  Créer la Pull Request
+                </>
               )}
-              Créer la Pull Request
             </Button>
           </DialogFooter>
         </DialogContent>

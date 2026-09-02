@@ -1321,9 +1321,11 @@ export default function DashboardPage() {
                 <Button
                   variant="link"
                   className="h-auto p-0 text-xs"
-                  onClick={() => router.push("/projects/Users")}
+                  onClick={() =>
+                    router.push(isAdmin ? "/projects/admin" : "/projects/Users")
+                  }
                 >
-                  Voir tout →
+                  {isAdmin ? "Voir tous les projets →" : "Voir tout →"}
                 </Button>
               </CardHeader>
 
@@ -1358,7 +1360,6 @@ export default function DashboardPage() {
               </CardContent>
             </Card>
 
-            {/* SECTION ADMIN */}
             {isAdmin && (
               <div className="grid grid-cols-1 gap-3 sm:gap-4 lg:grid-cols-2">
                 <CountChartCard

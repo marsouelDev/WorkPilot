@@ -85,7 +85,6 @@ export default function Nav({ children }: NavProps) {
 
   useNotificationSocket();
 
-  /* ===== État du dropdown notifications (hover) ===== */
   const [notifOpen, setNotifOpen] = useState(false);
   const closeTimer = useRef<number | null>(null);
 
@@ -106,7 +105,6 @@ export default function Nav({ children }: NavProps) {
     }, 200);
   };
 
-  /* Nettoyage du timer au démontage */
   useEffect(() => {
     return () => {
       if (closeTimer.current) {
@@ -143,7 +141,6 @@ export default function Nav({ children }: NavProps) {
     if (token) toutMarquerLues(token);
   };
 
-  /* ===== Breadcrumb ===== */
   const visibleSegments = pathname
     .split("/")
     .filter(Boolean)
@@ -154,7 +151,6 @@ export default function Nav({ children }: NavProps) {
       ? getSegmentLabel(visibleSegments[visibleSegments.length - 1])
       : "Dashboard";
 
-  /* ===== États de chargement ===== */
   if (!hasHydrated || isLoading) {
     return (
       <header className="sticky top-0 z-40 flex h-16 items-center justify-between border-b bg-background/80 px-4 backdrop-blur-md">
