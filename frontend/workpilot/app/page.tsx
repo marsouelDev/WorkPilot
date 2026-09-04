@@ -157,13 +157,6 @@ const BESOINS = [
   },
 ];
 
-const STATS = [
-  { value: "10 000+", label: "tâches gérées" },
-  { value: "500+", label: "équipes actives" },
-  { value: "3x", label: "plus rapide" },
-  { value: "95%", label: "de satisfaction" },
-];
-
 const STEPS = [
   {
     num: "01",
@@ -353,7 +346,6 @@ function LandingNav() {
   );
 }
 
-
 function DashboardMockup() {
   const bars = [45, 70, 55, 85, 65, 95, 75, 60, 88, 72];
 
@@ -457,7 +449,6 @@ function DashboardMockup() {
   );
 }
 
-
 function Hero() {
   return (
     <section className="relative overflow-hidden pb-24 pt-32 sm:pt-36">
@@ -501,25 +492,11 @@ function Hero() {
           </div>
         </Reveal>
 
-        <Reveal delay={600}>
-          <div className="mt-14 grid max-w-3xl grid-cols-2 gap-6 rounded-2xl border border-border bg-card/60 p-6 backdrop-blur sm:mx-auto sm:grid-cols-4">
-            {STATS.map((s) => (
-              <div key={s.label} className="text-left sm:text-center">
-                <p className="text-2xl font-bold text-[#6366F1]">{s.value}</p>
-                <p className="text-xs uppercase tracking-wider text-muted-foreground">
-                  {s.label}
-                </p>
-              </div>
-            ))}
-          </div>
-        </Reveal>
-
         <DashboardMockup />
       </div>
     </section>
   );
 }
-
 
 function Acteurs() {
   return (
@@ -605,7 +582,6 @@ function Acteurs() {
   );
 }
 
-
 function Besoins() {
   return (
     <section id="besoins" className="scroll-mt-16 py-24">
@@ -660,7 +636,6 @@ function Besoins() {
     </section>
   );
 }
-
 
 function Features() {
   return (
@@ -831,7 +806,6 @@ function HowItWorks() {
     </section>
   );
 }
-
 
 function FinalCta() {
   return (

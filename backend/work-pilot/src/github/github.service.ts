@@ -201,7 +201,7 @@ export class GithubService {
         if (refresh) {
           try {
             this.logger.warn(
-              `Token GitHub expiré pour ${user.email} → refresh automatique`,
+              `Token GitHub expiré pour ${user.email} refresh automatique`,
             );
 
             const newTokens = await this.refreshGithubToken(refresh);
@@ -416,7 +416,7 @@ export class GithubService {
         this.logger.log(`${logPrefix} Reprise sur branche "${branche}"`);
       } catch {
         this.logger.warn(
-          `${logPrefix} Branche "${brancheSouhaitee}" introuvable → fallback "${brancheDefaut}"`,
+          `${logPrefix} Branche "${brancheSouhaitee}" introuvable  fallback "${brancheDefaut}"`,
         );
       }
     }
@@ -531,7 +531,7 @@ export class GithubService {
     }
 
     this.logger.log(
-      `${logPrefix} ✅ Chargement terminé : ${fichiers.length}/${blobs.length} fichiers + ${dossiers.length} dossiers sur ${branche} (commit ${sha.substring(0, 7)})`,
+      `${logPrefix} Chargement terminé : ${fichiers.length}/${blobs.length} fichiers + ${dossiers.length} dossiers sur ${branche} (commit ${sha.substring(0, 7)})`,
     );
 
     return {
@@ -570,7 +570,7 @@ export class GithubService {
     );
     const defaultBranch = repoData.default_branch;
 
-    /* PAGINATION : récupère TOUTES les branches */
+    /* PAGINATION récupère TOUTES les branches */
     const toutesBranches: {
       name: string;
       protected: boolean;
@@ -613,7 +613,7 @@ export class GithubService {
     }
 
     this.logger.log(
-      `${logPrefix} ✅ ${toutesBranches.length} branche(s) récupérée(s)`,
+      `${logPrefix} ${toutesBranches.length} branche(s) récupérée(s)`,
     );
 
     /* Détails de chaque branche */
@@ -716,7 +716,7 @@ export class GithubService {
       }
     }
 
-    /* Tri : défaut d'abord, puis par date (récent → ancien) */
+    /* Tri  défaut d'abord, puis par date (récent → ancien) */
     resultats.sort((a, b) => {
       if (a.isDefault) return -1;
       if (b.isDefault) return 1;
@@ -728,7 +728,7 @@ export class GithubService {
     });
 
     this.logger.log(
-      `${logPrefix} ✅ Terminé : ${resultats.length}/${toutesBranches.length} branches avec détails`,
+      `${logPrefix} Terminé : ${resultats.length}/${toutesBranches.length} branches avec détails`,
     );
 
     return resultats;
@@ -817,7 +817,7 @@ export class GithubService {
     const { data: newCommit } = await octokit.git.createCommit({
       owner,
       repo,
-      message: `🔄 WorkPilot : ${fichiers.length} fichier(s) → ${branche}`,
+      message: `WorkPilot : ${fichiers.length} fichier(s) → ${branche}`,
       tree: newTree.sha,
       parents: [baseSha],
       headers: GITHUB_API_HEADERS,
@@ -832,7 +832,7 @@ export class GithubService {
     });
 
     this.logger.log(
-      `${logPrefix} ✅ Push OK : ${fichiers.length} fichier(s) sur ${branche} (commit ${newCommit.sha.substring(0, 7)})`,
+      `${logPrefix} Push OK : ${fichiers.length} fichier(s) sur ${branche} (commit ${newCommit.sha.substring(0, 7)})`,
     );
 
     return { branche, commit: newCommit.sha };
@@ -862,7 +862,7 @@ export class GithubService {
       headers: GITHUB_API_HEADERS,
     });
 
-    this.logger.log(`${logPrefix} ✅ PR #${pr.number} créée : ${pr.html_url}`);
+    this.logger.log(`${logPrefix} PR #${pr.number} créée : ${pr.html_url}`);
 
     return { url: pr.html_url, numero: pr.number };
   }
@@ -898,7 +898,7 @@ export class GithubService {
       headers: GITHUB_API_HEADERS,
     });
 
-    this.logger.log(`${logPrefix} ✅ PR #${numero} fusionnée`);
+    this.logger.log(`${logPrefix} PR #${numero} fusionnée`);
   }
 
   async trouverPrExistante(

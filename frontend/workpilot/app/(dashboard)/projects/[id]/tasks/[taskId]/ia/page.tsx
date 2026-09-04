@@ -228,6 +228,7 @@ function ResizableHandle() {
 interface Tache {
   id: number;
   titre: string;
+  descriptionGeneree?: string | null;
   assigneeId?: number | null;
 }
 
@@ -278,12 +279,6 @@ export default function IdePage() {
 
   const [viewMode, setViewMode] = useState<"code" | "preview">("code");
 
-  useEffect(() => {
-    if (isMobile && viewMode === "preview") {
-      // L'utilisateur a choisi aperçu sur mobile on laisser
-    }
-  }, [isMobile, viewMode]);
-
   const [info, setInfo] = useState<{
     branche: string;
     brancheDefaut: string;
@@ -307,7 +302,6 @@ export default function IdePage() {
 
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
-  /* ✅ branchesDetail au lieu de branches */
   const [branchesDetail, setBranchesDetail] = useState<BrancheDetaillee[]>([]);
   const [brancheCourante, setBrancheCourante] = useState("");
   const [isChangingBranche, setIsChangingBranche] = useState(false);
@@ -373,6 +367,7 @@ export default function IdePage() {
     };
   }, []);
 
+  /* ✅ Chargement en arrière-plan (fonctionne sur mobile ET desktop) */
   useEffect(() => {
     if (!API_URL || !token || !projetId || isNaN(projetId) || !user?.id) return;
 
@@ -452,7 +447,6 @@ export default function IdePage() {
           }
         } catch {}
 
-        /* Chargement des branches détaillées */
         try {
           const resBr = await fetch(
             `${API_URL}/projects/${projetId}/branches-detaillees`,
@@ -753,10 +747,13 @@ export default function IdePage() {
   useEffect(() => {
     if (!user?.id) return;
     const timer = setTimeout(() => {
-      sauvegarderDraft(projetId, Number(user.id), modified);
+      const modifs = isMobile
+        ? Object.fromEntries(Object.entries(modified).slice(-50))
+        : modified;
+      sauvegarderDraft(projetId, Number(user.id), modifs);
     }, 500);
     return () => clearTimeout(timer);
-  }, [modified, projetId, user?.id]);
+  }, [modified, projetId, user?.id, isMobile]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -1100,6 +1097,7 @@ export default function IdePage() {
       setIsSyncing(false);
     }
   };
+
   const handleCreerPr = async () => {
     if (!token || !tacheIaId) return;
     setIsCreatingPr(true);
@@ -1163,7 +1161,9 @@ export default function IdePage() {
 
   return (
     <div className="-m-6 flex h-[calc(100vh-4rem)] flex-col overflow-hidden bg-[#1e1e1e]">
+      {/* ===== HEADER — Simplifié sur mobile, complet sur desktop ===== */}
       <div className="flex items-center justify-between gap-2 border-b border-white/10 px-2 py-2 md:gap-3 md:px-3">
+        {/* ===== PARTIE GAUCHE ===== */}
         <div className="flex min-w-0 items-center gap-1.5 md:gap-2">
           <Button
             type="button"
@@ -1179,85 +1179,104 @@ export default function IdePage() {
             {nomProjet.charAt(0).toUpperCase() || "W"}
           </div>
 
-          <p className="hidden max-w-32 truncate text-sm font-semibold text-white md:inline md:max-w-40">
+          <p className="max-w-32 truncate text-sm font-semibold text-white md:max-w-40">
             {nomProjet}
           </p>
 
-          <GitBranch className="hidden h-3.5 w-3.5 text-emerald-500 md:inline" />
+          {/* ✅ Indicateur de statut compact (mobile uniquement) */}
+          <span className="flex items-center gap-1.5 text-[11px] text-gray-400 md:hidden">
+            <span
+              className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+                statut.includes("✅") || statut.includes("prêt")
+                  ? "bg-emerald-500"
+                  : statut.includes("Error") || statut.includes("échoué")
+                    ? "bg-red-500"
+                    : "bg-amber-500 animate-pulse"
+              }`}
+            />
+            <span className="truncate max-w-30">{statut}</span>
+          </span>
 
-          {branchesDetail.length > 0 && (
-            <select
-              value={brancheCourante}
-              disabled={isChangingBranche}
-              onChange={(e) => chargerBranche(e.target.value)}
-              className="hidden max-w-48 cursor-pointer rounded-full border border-white/10 bg-white/5 px-2.5 py-0.5 text-xs text-gray-300 focus:outline-none focus:ring-1 focus:ring-[#6366F1] disabled:opacity-50 md:inline-block"
-              title={`${branchesDetail.length} branche(s) disponible(s)`}
-            >
-              {branchesDetail
-                .sort((a: BrancheDetaillee, b: BrancheDetaillee) => {
-                  if (a.isDefault) return -1;
-                  if (b.isDefault) return 1;
-                  return a.name.localeCompare(b.name);
-                })
-                .map((b) => (
-                  <option key={b.name} value={b.name} className="bg-[#181818]">
-                    {b.isDefault ? "⭐ " : b.protected ? "🔒 " : ""}
-                    {b.name}
-                  </option>
-                ))}
-            </select>
-          )}
+          {/* ===== BLOCS CACHÉS SUR MOBILE (desktop uniquement) ===== */}
+          <div className="hidden md:flex md:items-center md:gap-2">
+            <GitBranch className="h-3.5 w-3.5 text-emerald-500" />
 
-          {isChangingBranche && (
-            <Loader2 className="hidden h-3.5 w-3.5 animate-spin text-gray-400 md:inline" />
-          )}
+            {branchesDetail.length > 0 && (
+              <select
+                value={brancheCourante}
+                disabled={isChangingBranche}
+                onChange={(e) => chargerBranche(e.target.value)}
+                className="max-w-48 cursor-pointer rounded-full border border-white/10 bg-white/5 px-2.5 py-0.5 text-xs text-gray-300 focus:outline-none focus:ring-1 focus:ring-[#6366F1] disabled:opacity-50"
+                title={`${branchesDetail.length} branche(s) disponible(s)`}
+              >
+                {branchesDetail
+                  .sort((a: BrancheDetaillee, b: BrancheDetaillee) => {
+                    if (a.isDefault) return -1;
+                    if (b.isDefault) return 1;
+                    return a.name.localeCompare(b.name);
+                  })
+                  .map((b) => (
+                    <option
+                      key={b.name}
+                      value={b.name}
+                      className="bg-[#181818]"
+                    >
+                      {b.isDefault ? "⭐ " : b.protected ? "🔒 " : ""}
+                      {b.name}
+                    </option>
+                  ))}
+              </select>
+            )}
 
-          {brancheCible && (
-            <span className="hidden items-center gap-1 rounded-full bg-amber-500/20 px-2 py-0.5 text-xs text-amber-300 md:inline-flex">
-              <GitBranch className="h-3.5 w-3.5" />→ {brancheCible}
-            </span>
-          )}
+            {isChangingBranche && (
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-gray-400" />
+            )}
+
+            {brancheCible && (
+              <span className="flex items-center gap-1 rounded-full bg-amber-500/20 px-2 py-0.5 text-xs text-amber-300">
+                <GitBranch className="h-3.5 w-3.5" />→ {brancheCible}
+              </span>
+            )}
+          </div>
         </div>
 
-        <div className="flex shrink-0 items-center gap-1 rounded-full border border-white/10 bg-white/5 p-1">
+        {/* ===== TOGGLE CODE/APERÇU (desktop uniquement) ===== */}
+        <div className="hidden shrink-0 items-center gap-1 rounded-full border border-white/10 bg-white/5 p-1 sm:flex">
           <button
             onClick={() => changerVue("preview")}
-            className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition-colors md:px-3 ${
+            className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors ${
               viewMode === "preview"
                 ? "bg-[#6366F1] text-white"
                 : "text-gray-400 hover:bg-white/10 hover:text-white"
             }`}
           >
             <Eye className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Aperçu</span>
+            Aperçu
           </button>
 
-          {!isMobile && (
-            <button
-              onClick={() => changerVue("code")}
-              className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-                viewMode === "code"
-                  ? "bg-[#6366F1] text-white"
-                  : "text-gray-400 hover:bg-white/10 hover:text-white"
-              }`}
-            >
-              <Code2 className="h-3.5 w-3.5" />
-              Code
-            </button>
-          )}
+          <button
+            onClick={() => changerVue("code")}
+            className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+              viewMode === "code"
+                ? "bg-[#6366F1] text-white"
+                : "text-gray-400 hover:bg-white/10 hover:text-white"
+            }`}
+          >
+            <Code2 className="h-3.5 w-3.5" />
+            Code
+          </button>
         </div>
 
-        <div className="flex shrink-0 items-center gap-1 md:gap-1.5">
-          <span className="mr-1 hidden text-xs text-gray-400 lg:inline">
-            {statut}
-          </span>
+        {/* ===== BOUTONS ACTIONS (desktop uniquement) ===== */}
+        <div className="hidden shrink-0 items-center gap-1 md:flex md:gap-1.5">
+          <span className="mr-1 text-xs text-gray-400 lg:inline">{statut}</span>
 
           {depotGitUrl && (
             <a
               href={depotGitUrl}
               target="_blank"
               rel="noreferrer"
-              className="rounded-md border border-white/10 bg-white/5 p-1.5 text-gray-300 transition-colors hover:bg-white/10 hover:text-white md:p-2"
+              className="rounded-md border border-white/10 bg-white/5 p-2 text-gray-300 transition-colors hover:bg-white/10 hover:text-white"
               title="Ouvrir le dépôt GitHub"
             >
               <GithubIcon className="h-4 w-4" />
@@ -1267,7 +1286,7 @@ export default function IdePage() {
           <button
             onClick={handlePull}
             disabled={isPulling}
-            className="rounded-md border border-white/10 bg-white/5 p-1.5 text-gray-300 transition-colors hover:bg-white/10 hover:text-white disabled:opacity-50 md:p-2"
+            className="rounded-md border border-white/10 bg-white/5 p-2 text-gray-300 transition-colors hover:bg-white/10 hover:text-white disabled:opacity-50"
             title="Pull depuis GitHub"
           >
             {isPulling ? (
@@ -1280,7 +1299,7 @@ export default function IdePage() {
           <button
             onClick={sauvegarder}
             disabled={nombreModifs === 0}
-            className="hidden rounded-md border border-white/10 bg-white/5 p-2 text-gray-300 transition-colors hover:bg-white/10 hover:text-white disabled:opacity-40 md:inline-block"
+            className="rounded-md border border-white/10 bg-white/5 p-2 text-gray-300 transition-colors hover:bg-white/10 hover:text-white disabled:opacity-40"
             title={`Écrire les modifications (${nombreModifs})`}
           >
             <Save className="h-4 w-4" />
@@ -1288,7 +1307,7 @@ export default function IdePage() {
 
           <button
             onClick={() => setDialogBranche(true)}
-            className="hidden rounded-md border border-white/10 bg-white/5 p-2 text-gray-300 transition-colors hover:bg-white/10 hover:text-white md:inline-block"
+            className="rounded-md border border-white/10 bg-white/5 p-2 text-gray-300 transition-colors hover:bg-white/10 hover:text-white"
             title="Créer une branche"
           >
             <GitBranch className="h-4 w-4" />
@@ -1297,7 +1316,7 @@ export default function IdePage() {
           <button
             onClick={handlePush}
             disabled={isSyncing || nombreModifs === 0}
-            className="relative rounded-md border border-white/10 bg-white/5 p-1.5 text-gray-300 transition-colors hover:bg-white/10 hover:text-white disabled:opacity-40 md:p-2"
+            className="relative rounded-md border border-white/10 bg-white/5 p-2 text-gray-300 transition-colors hover:bg-white/10 hover:text-white disabled:opacity-40"
             title="Push vers GitHub"
           >
             {isSyncing ? (
@@ -1315,49 +1334,96 @@ export default function IdePage() {
 
           <button
             onClick={() => setDialogPr(true)}
-            className="hidden items-center gap-1.5 rounded-md bg-[#6366F1] px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-[#4f46e5] md:inline-flex"
-            title="Créer une Pull Request"
+            disabled={!tacheIaId}
+            className="relative flex items-center gap-1.5 rounded-md bg-[#6366F1] px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-[#4f46e5] disabled:cursor-not-allowed disabled:opacity-40"
+            title={
+              tacheIaId ? "Créer une Pull Request" : "Aucune tâche assignée"
+            }
           >
             <GitPullRequest className="h-4 w-4" />
             <span className="hidden lg:inline">Créer PR</span>
           </button>
         </div>
       </div>
-
+      {/* ===== CONTENU PRINCIPAL ===== */}
       <div className="min-h-0 flex-1">
-        {/*  MODE MOBILE  */}
+        {/*  ✅ MODE MOBILE — IA + Aperçu uniquement  */}
         {isMobile && (
-          <div className="h-full">
-            {viewMode === "code" ? (
-              <div className="h-full bg-slate-100">
-                {tacheIaId ? (
-                  <AssistanceIaChat
-                    taskId={tacheIaId}
-                    wc={wcInstance}
-                    projectRoot={projectRoot}
-                    onRefresh={rechargerFichiers}
-                  />
-                ) : (
-                  <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
-                    <div className="flex h-16 w-16 items-center justify-center rounded-full bg-slate-200">
-                      <Lock className="h-7 w-7 text-slate-500" />
+          <div className="relative h-full">
+            <div className="h-full pb-16">
+              {viewMode === "code" ? (
+                <div className="h-full bg-slate-100">
+                  {tacheIaId ? (
+                    <AssistanceIaChat
+                      taskId={tacheIaId}
+                      wc={wcInstance}
+                      projectRoot={projectRoot}
+                      onRefresh={rechargerFichiers}
+                    />
+                  ) : (
+                    <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
+                      <div className="flex h-16 w-16 items-center justify-center rounded-full bg-slate-200">
+                        <Lock className="h-7 w-7 text-slate-500" />
+                      </div>
+                      <div>
+                        <h3 className="text-base font-semibold text-slate-700">
+                          Assistance IA verrouillée
+                        </h3>
+                        <p className="mt-1 max-w-xs text-sm text-slate-500">
+                          Aucune tâche ne t&apos;est attribuée pour le moment.
+                        </p>
+                      </div>
                     </div>
-                    <div>
-                      <h3 className="text-base font-semibold text-slate-700">
-                        Assistance IA verrouillée
-                      </h3>
-                      <p className="mt-1 max-w-xs text-sm text-slate-500">
-                        Aucune tâche ne t&apos;est attribuée pour le moment.
-                      </p>
-                    </div>
-                  </div>
-                )}
+                  )}
+                </div>
+              ) : (
+                <div className="h-full bg-[#1e1e1e]">
+                  <PreviewPanel previewUrl={previewUrl} statut={statut} />
+                </div>
+              )}
+            </div>
+
+            {/* Barre flottante mobile */}
+            <div className="absolute inset-x-0 bottom-0 z-30 border-t border-white/10 bg-[#1e1e1e]/95 px-4 py-3 backdrop-blur-lg">
+              <div className="flex items-center justify-center gap-2">
+                <button
+                  onClick={() => changerVue("code")}
+                  className={`flex flex-1 items-center justify-center gap-2 rounded-xl py-3 text-sm font-semibold transition-all ${
+                    viewMode === "code"
+                      ? "bg-[#6366F1] text-white shadow-lg shadow-[#6366F1]/30"
+                      : "bg-white/5 text-gray-300 hover:bg-white/10"
+                  }`}
+                >
+                  <Code2 className="h-4 w-4" />
+                  IA Assistant
+                </button>
+
+                <button
+                  onClick={() => changerVue("preview")}
+                  className={`flex flex-1 items-center justify-center gap-2 rounded-xl py-3 text-sm font-semibold transition-all ${
+                    viewMode === "preview"
+                      ? "bg-[#6366F1] text-white shadow-lg shadow-[#6366F1]/30"
+                      : "bg-white/5 text-gray-300 hover:bg-white/10"
+                  }`}
+                >
+                  <Eye className="h-4 w-4" />
+                  Aperçu
+                </button>
               </div>
-            ) : (
-              <div className="h-full bg-[#1e1e1e]">
-                <PreviewPanel previewUrl={previewUrl} statut={statut} />
+
+              <div className="mt-2 flex items-center justify-center gap-1.5 text-[11px] text-gray-400">
+                <span
+                  className={`h-1.5 w-1.5 rounded-full ${
+                    statut.includes("✅") || statut.includes("prêt")
+                      ? "bg-emerald-500"
+                      : statut.includes("Error") || statut.includes("échoué")
+                        ? "bg-red-500"
+                        : "bg-amber-500 animate-pulse"
+                  }`}
+                />
+                <span className="truncate">{statut}</span>
               </div>
-            )}
+            </div>
           </div>
         )}
 
@@ -1630,7 +1696,7 @@ export default function IdePage() {
           </ResizablePanelGroup>
         )}
       </div>
-
+      {/* ===== DIALOG BRANCHE ===== */}
       <Dialog open={dialogBranche} onOpenChange={setDialogBranche}>
         <DialogContent>
           <DialogHeader>
@@ -1671,7 +1737,7 @@ export default function IdePage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
+      \{" "}
       <Dialog open={dialogPr} onOpenChange={setDialogPr}>
         <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
@@ -1708,10 +1774,6 @@ export default function IdePage() {
                         <p className="wrap-break-word text-sm font-semibold leading-snug text-foreground">
                           {tacheCourante.titre}
                         </p>
-
-                        <p className="mt-2 text-[11px] font-medium text-muted-foreground">
-                          Tâche #{tacheCourante.id} · Assignée à toi
-                        </p>
                       </div>
                     </div>
                   </div>
@@ -1747,6 +1809,30 @@ export default function IdePage() {
               <p className="mt-1.5 text-[11px] text-muted-foreground">
                 Laisser vide pour utiliser le titre de la tâche.
               </p>
+            </div>
+
+            <div className="rounded-lg border border-border/60 bg-muted/40 p-3 text-xs text-muted-foreground">
+              <p className="mb-1 font-semibold text-foreground">Résumé</p>
+              <ul className="space-y-1">
+                <li className="flex items-start gap-1.5">
+                  <span className="mt-1 h-1 w-1 shrink-0 rounded-full bg-[#6366F1]" />
+                  <span className="wrap-break-word">
+                    Branche source :{" "}
+                    <span className="font-semibold text-foreground">
+                      {brancheActive}
+                    </span>
+                  </span>
+                </li>
+                <li className="flex items-start gap-1.5">
+                  <span className="mt-1 h-1 w-1 shrink-0 rounded-full bg-[#6366F1]" />
+                  <span className="wrap-break-word">
+                    Branche cible :{" "}
+                    <span className="font-semibold text-foreground">
+                      {info?.brancheDefaut}
+                    </span>
+                  </span>
+                </li>
+              </ul>
             </div>
           </div>
 
