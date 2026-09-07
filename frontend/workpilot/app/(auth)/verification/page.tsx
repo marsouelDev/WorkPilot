@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { Mail } from "lucide-react";
 import VerificationForm from "@/app/components/auth/VerificationForm";
 
@@ -15,7 +16,18 @@ export default function VerificationPage() {
           Vérification
         </h1>
 
-        <VerificationForm />
+        <Suspense
+          fallback={
+            <div className="flex items-center justify-center py-10">
+              <div className="flex flex-col items-center gap-3">
+                <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#6366F1] border-t-transparent" />
+                <p className="text-sm text-gray-500">Chargement...</p>
+              </div>
+            </div>
+          }
+        >
+          <VerificationForm />
+        </Suspense>
       </div>
     </div>
   );

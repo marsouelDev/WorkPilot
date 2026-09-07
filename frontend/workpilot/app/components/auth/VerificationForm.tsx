@@ -39,29 +39,23 @@ export default function VerificationForm() {
 
   useEffect(() => {
     if (resendSecondsLeft <= 0) return;
-
     const timer = setInterval(() => {
       setResendSecondsLeft((s) => s - 1);
     }, 1000);
-
     return () => clearInterval(timer);
   }, [resendSecondsLeft]);
 
   useEffect(() => {
     if (expirySecondsLeft <= 0) return;
-
     const timer = setInterval(() => {
       setExpirySecondsLeft((s) => s - 1);
     }, 1000);
-
     return () => clearInterval(timer);
   }, [expirySecondsLeft]);
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
     if (isExpired) return;
-
     try {
       await verifyCode({ email, code });
       router.push("/dashboard");
@@ -70,11 +64,9 @@ export default function VerificationForm() {
 
   const onResend = async () => {
     if (resendSecondsLeft > 0 || isResending) return;
-
     clearError();
     setResendMessage(null);
     setIsResending(true);
-
     try {
       await resendCode({ email });
       setResendSecondsLeft(RESEND_DELAY_SECONDS);
@@ -103,30 +95,13 @@ export default function VerificationForm() {
           disabled={isExpired}
         >
           <InputOTPGroup>
-            <InputOTPSlot
-              index={0}
-              className="rounded-xl border-gray-300 h-14 w-12 text-lg focus:ring-2 focus:ring-indigo-500"
-            />
-            <InputOTPSlot
-              index={1}
-              className="rounded-xl border-gray-300 h-14 w-12 text-lg focus:ring-2 focus:ring-indigo-500"
-            />
-            <InputOTPSlot
-              index={2}
-              className="rounded-xl border-gray-300 h-14 w-12 text-lg focus:ring-2 focus:ring-indigo-500"
-            />
-            <InputOTPSlot
-              index={3}
-              className="rounded-xl border-gray-300 h-14 w-12 text-lg focus:ring-2 focus:ring-indigo-500"
-            />
-            <InputOTPSlot
-              index={4}
-              className="rounded-xl border-gray-300 h-14 w-12 text-lg focus:ring-2 focus:ring-indigo-500"
-            />
-            <InputOTPSlot
-              index={5}
-              className="rounded-xl border-gray-300 h-14 w-12 text-lg focus:ring-2 focus:ring-indigo-500"
-            />
+            {[0, 1, 2, 3, 4, 5].map((index) => (
+              <InputOTPSlot
+                key={index}
+                index={index}
+                className="rounded-xl border-gray-300 h-14 w-12 text-lg focus:ring-2 focus:ring-indigo-500"
+              />
+            ))}
           </InputOTPGroup>
         </InputOTP>
       </div>
