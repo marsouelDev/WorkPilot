@@ -812,10 +812,10 @@ function FinalCta() {
     <section className="py-24">
       <div className="mx-auto max-w-7xl px-4 sm:px-6">
         <Reveal>
-          <div className="relative overflow-hidden rounded-3xl bg-linear-to-br from-[#6366F1] to-violet-600 px-6 py-16 text-left shadow-2xl shadow-[#6366F1]/25 sm:px-16 sm:text-center">
+          <div className="relative overflow-hidden rounded-3xl bg-[#6366F1] px-6 py-16 text-left shadow-2xl shadow-[#6366F1]/25 sm:px-16 sm:text-center">
+            {" "}
             <div className="pointer-events-none absolute -left-20 -top-20 h-64 w-64 rounded-full bg-white/10 blur-3xl" />
             <div className="pointer-events-none absolute -bottom-20 -right-20 h-64 w-64 rounded-full bg-white/10 blur-3xl" />
-
             <h2 className="relative text-3xl font-bold text-white sm:text-4xl">
               Prêt à transformer votre productivité ?
             </h2>
