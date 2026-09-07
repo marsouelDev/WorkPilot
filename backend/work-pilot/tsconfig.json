@@ -4,15 +4,14 @@
     "moduleResolution": "nodenext",
     "resolvePackageJsonExports": true,
 
-    "target": "ES2022",
-    "lib": ["ES2022"],
+    "target": "ES2023",
 
     "outDir": "./dist",
-    "rootDir": "./src",
     "sourceMap": true,
 
     "removeComments": true,
     "incremental": true,
+
     "declaration": false,
 
     "emitDecoratorMetadata": true,
@@ -31,7 +30,5 @@
 
     "strictBindCallApply": false,
     "noFallthroughCasesInSwitch": false
-  },
-  "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "test", "**/*.spec.ts"]
+  }
 }
