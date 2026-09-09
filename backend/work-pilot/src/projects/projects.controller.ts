@@ -19,8 +19,8 @@ import { CreateProjectDto } from './dto/create-project-dto';
 import { InviteMemberDto } from './dto/invite-member.dto';
 import { ChangeRoleDto } from './dto/change-role.dto';
 import { RoleGlobal } from '@prisma/client';
-import { RoleGuard } from '../../common/guards/roles.guard';
-import { ChefProjetGuard } from '../../common/guards/chef-projet.guard';
+import { RoleGuard } from '../common/guards/roles.guard';
+import { ChefProjetGuard } from '../common/guards/chef-projet.guard';
 import { Roles } from '../users/user-app.decorator';
 import {
   ApiBearerAuth,

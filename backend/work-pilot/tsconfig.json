@@ -32,6 +32,6 @@
     "strictBindCallApply": false,
     "noFallthroughCasesInSwitch": false
   },
-  "include": ["src/**/*"],
+  "include": ["src/**/*", "dist"],
   "exclude": ["node_modules", "dist", "test", "common", "**/*.spec.ts", "**/*.js"]
 }

@@ -25,7 +25,7 @@ export class EmailService {
     if (type === 'code_verification') {
       return this.mail.sendMail(
         email,
-        '🔐 Vérification de votre compte WorkPilot',
+        'Vérification de votre compte WorkPilot',
         `
 <!DOCTYPE html>
 <html lang="fr">
@@ -185,7 +185,7 @@ Merci de faire confiance à
 
 <div style="text-align:center;margin-top:35px;">
 
-<a href="#"
+<a href="https://work-pilot-alpha.vercel.app/dashboard"
 style="
 background:#2563eb;
 color:white;
@@ -600,7 +600,7 @@ Plateforme de gestion de projets et de tâches.
     if (type === 'retrait_projet') {
       return this.mail.sendMail(
         email,
-        `👋 Vous avez été retiré du projet "${emailData.projetTitre}"`,
+        `Vous avez été retiré du projet "${emailData.projetTitre}"`,
         this.getRetraitTemplate(email, emailData),
       );
     }
@@ -777,7 +777,7 @@ Plateforme de gestion de projets et de tâches.
 </html>`;
   }
 
-  // ⭐ Template pour le retrait
+  // Template pour le retrait
   private getRetraitTemplate(email: string, data: EmailData): string {
     return `
 <!DOCTYPE html>

@@ -130,7 +130,6 @@ export class AuthController {
 
     return { url };
   }
-
   @Get('github/callback')
   @ApiOperation({ summary: 'Callback OAuth GitHub' })
   async githubCallback(
@@ -179,7 +178,13 @@ export class AuthController {
         },
       );
 
-      const tokenData = await tokenRes.json();
+      // ✅ TYPER la réponse token
+      const tokenData = (await tokenRes.json()) as {
+        access_token?: string;
+        scope?: string;
+        error?: string;
+        error_description?: string;
+      };
       const accessToken: string | undefined = tokenData.access_token;
       const scope: string | undefined = tokenData.scope;
 
@@ -203,7 +208,14 @@ export class AuthController {
         },
       });
 
-      const ghUser = await ghRes.json();
+      // ✅ TYPER la réponse user
+      const ghUser = (await ghRes.json()) as {
+        login?: string;
+        id?: number;
+        name?: string;
+        email?: string;
+        avatar_url?: string;
+      };
 
       if (!ghUser?.login) {
         this.logger.error('Pas de login GitHub', ghUser);

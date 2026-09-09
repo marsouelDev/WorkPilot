@@ -16,7 +16,7 @@ import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { RoleGlobal, StatutCompte } from '@prisma/client';
-import { RoleGuard } from '../../common/guards/roles.guard';
+import { RoleGuard } from '../common/guards/roles.guard';
 import { Roles } from './user-app.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt.auth.guard';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';

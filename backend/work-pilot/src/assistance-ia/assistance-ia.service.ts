@@ -18,6 +18,30 @@ type AIMessage = {
   content: MessageContent;
 };
 
+interface AIChatResponse {
+  choices?: Array<{
+    message?: {
+      content?: string;
+    };
+  }>;
+  error?: {
+    message?: string;
+  };
+}
+
+// ✅ NOUVELLE INTERFACE pour Gemini
+interface GeminiResponse {
+  candidates?: Array<{
+    content?: {
+      parts?: Array<{ text?: string }>;
+    };
+    finishReason?: string;
+  }>;
+  error?: {
+    message?: string;
+  };
+}
+
 const MAX_TOKENS = {
   gemini: 65536,
   mistral: 8192,
@@ -61,7 +85,6 @@ export class AssistanceIaService {
     'https://generativelanguage.googleapis.com/v1beta/models';
   private readonly mistralApiUrl = 'https://api.mistral.ai/v1/chat/completions';
 
-  /* Modèles Gemini — TEXTE + VISION (fallback automatique) */
   private readonly modelesGemini = [
     'gemini-2.5-flash',
     'gemini-2.5-flash-lite',
@@ -70,7 +93,6 @@ export class AssistanceIaService {
     'gemini-1.5-flash-8b',
   ];
 
-  /* Modèles Groq : TEXTE */
   private readonly modelesGroq = [
     'llama-3.3-70b-versatile',
     'llama-3.1-8b-instant',
@@ -80,14 +102,12 @@ export class AssistanceIaService {
     'qwen/qwen3-32b',
   ];
 
-  /* Modèles Groq : VISION */
   private readonly modelesGroqVision = [
     'llama-3.2-90b-vision-preview',
     'llama-3.2-11b-vision-preview',
     'llava-v1.5-7b-4096-preview',
   ];
 
-  /* Modèles OpenRouter : TEXTE */
   private readonly modelesOpenRouter = [
     'nvidia/nemotron-3-ultra-550b-a55b:free',
     'nvidia/nemotron-3-super-120b-a12b:free',
@@ -103,7 +123,6 @@ export class AssistanceIaService {
     'openrouter/free',
   ];
 
-  /* Modèles OpenRouter : VISION */
   private readonly modelesOpenRouterVision = [
     'google/gemma-4-31b-it:free',
     'google/gemma-4-26b-a4b-it:free',
@@ -115,7 +134,6 @@ export class AssistanceIaService {
     'openrouter/free',
   ];
 
-  /* Modèles Mistral : TEXTE */
   private readonly modelesMistral = [
     'mistral-large-latest',
     'mistral-small-latest',
@@ -123,7 +141,6 @@ export class AssistanceIaService {
     'open-mistral-nemo',
   ];
 
-  /* Modèles Mistral : VISION */
   private readonly modelesMistralVision = [
     'pixtral-large-latest',
     'pixtral-12b-2409',
@@ -170,7 +187,6 @@ export class AssistanceIaService {
     const geminiKey = process.env.GEMINI_API_KEY;
     if (!geminiKey) throw new Error('GEMINI_API_KEY non configurée');
 
-    // Construit le contenu une seule fois (partagé entre tous les modèles)
     const contents: Array<{
       role: 'user' | 'model';
       parts: Array<
@@ -216,7 +232,6 @@ export class AssistanceIaService {
       },
     };
 
-    // Fallback : essaie chaque modèle dans l'ordre
     let derniereErreur: Error | null = null;
 
     for (const modele of this.modelesGemini) {
@@ -249,11 +264,11 @@ export class AssistanceIaService {
           );
         }
 
-        const data = await res.json();
+        // ✅ TYPER la réponse Gemini
+        const data = (await res.json()) as GeminiResponse;
         const contenu = data?.candidates?.[0]?.content?.parts?.[0]?.text;
 
         if (!contenu) {
-          // Parfois Gemini renvoie une réponse vide (sécurité, filtre)
           const blockReason = data?.candidates?.[0]?.finishReason;
           if (blockReason === 'SAFETY') {
             this.logger.warn(`Blocage sécurité Gemini (${modele})`);
@@ -320,7 +335,7 @@ export class AssistanceIaService {
           throw new Error(`Mistral error (${response.status}): ${errorText}`);
         }
 
-        const data = await response.json();
+        const data = (await response.json()) as AIChatResponse;
         const contenu = data?.choices?.[0]?.message?.content;
 
         if (!contenu) throw new Error('Réponse Mistral vide');
@@ -383,7 +398,7 @@ export class AssistanceIaService {
           throw new Error(`Groq error (${response.status}): ${errorText}`);
         }
 
-        const data = await response.json();
+        const data = (await response.json()) as AIChatResponse;
         const contenu = data?.choices?.[0]?.message?.content;
 
         if (!contenu) throw new Error('Réponse Groq vide');
@@ -457,7 +472,7 @@ export class AssistanceIaService {
           );
         }
 
-        const data = await response.json();
+        const data = (await response.json()) as AIChatResponse;
         const contenu = data?.choices?.[0]?.message?.content;
 
         if (!contenu) throw new Error('Réponse OpenRouter vide');
@@ -676,33 +691,6 @@ ${task.descriptionGeneree || 'Non renseignée'}
 ${structureSection}
 ${filesSection}
 ${stackSection}
-
----
-
-# 🖼️ ANALYSE D'IMAGES
-
-Tu peux recevoir des **images** (captures d'écran, maquettes, diagrammes, erreurs navigateur).
-
-Quand une image est jointe :
-
-1. **Analyse-la attentivement** :
-   - Messages d'erreur, stack traces, logs console
-   - Interfaces utilisateur, maquettes, designs
-   - Diagrammes UML, architectures, schémas
-   - Code source visible dans une capture
-   - Problèmes visuels (débordements, alignements, couleurs)
-
-2. **Relie l'image au contexte** :
-   - Corrèle les erreurs avec le code du projet
-   - Compare les maquettes avec les composants existants
-   - Identifie les patterns visuels à implémenter
-
-3. **Propose des actions concrètes** :
-   - Corrections de bugs avec les fichiers précis à modifier
-   - Adaptation du code pour correspondre au design
-   - Implémentation de l'architecture décrite dans le diagramme
-
-**Important :** Mentionne toujours CE QUE TU VOIS dans l'image avant de proposer du code.
 
 ---
 
