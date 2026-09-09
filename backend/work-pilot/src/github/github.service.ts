@@ -309,7 +309,7 @@ export class GithubService {
 
       if (!res.ok) return { valide: false };
 
-      const data = await res.json();
+      const data = (await res.json()) as { login?: string };
       return {
         valide: true,
         login: data.login,
@@ -340,7 +340,14 @@ export class GithubService {
       }),
     });
 
-    const data = await res.json();
+    const data = (await res.json()) as {
+      access_token?: string;
+      refresh_token?: string;
+      expires_in?: number;
+      refresh_token_expires_in?: number;
+      error?: string;
+      error_description?: string;
+    };
 
     if (!res.ok || data.error) {
       throw new Error(
@@ -349,7 +356,7 @@ export class GithubService {
     }
 
     return {
-      accessToken: data.access_token,
+      accessToken: data.access_token!,
       refreshToken: data.refresh_token,
       accessExpiresAt: data.expires_in
         ? new Date(Date.now() + data.expires_in * 1000)

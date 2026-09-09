@@ -55,4 +55,16 @@ pids
 # Diagnostic reports (https://nodejs.org/api/report.html)
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
+# Fichiers compilés qui ne doivent JAMAIS être commités
+*.js
+*.js.map
+*.d.ts
+!jest.config.js
+!prisma/seed.ts
+
+# Dossiers de build
+dist/
+common/
+build/
+
 /generated/prisma
