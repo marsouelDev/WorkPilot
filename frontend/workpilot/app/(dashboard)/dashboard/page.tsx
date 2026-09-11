@@ -1141,29 +1141,32 @@ export default function DashboardPage() {
   return (
     <div className="min-h-screen space-y-4 p-4 sm:space-y-6 sm:p-6 lg:p-8">
       {/* HEADER — toujours visible */}
-      <div className="animate-fade-up flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-        <div>
-          <h1 className="text-xl font-bold tracking-tight sm:text-2xl">
-            <span className="animate-float inline-block">{emoji}</span>{" "}
-            {greeting}
-            {user?.prenom ? `, ${user.prenom}` : ""}
-          </h1>
-          <p className="mt-0.5 text-xs text-muted-foreground sm:mt-1 sm:text-sm">
-            {isAdmin
-              ? "Vue d'ensemble de la plateforme WorkPilot"
-              : "Voici un aperçu de votre activité sur WorkPilot"}
-          </p>
-        </div>
+     {/* HEADER — toujours visible */}
+<div className="animate-fade-up flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+  <div>
+    <h1 className="text-xl font-bold tracking-tight sm:text-2xl">
+      <span className="animate-float inline-block">{emoji}</span>{" "}
+      {greeting}
+      {user?.prenom ? `, ${user.prenom}` : ""}
+    </h1>
+    <p className="mt-0.5 text-xs text-muted-foreground sm:mt-1 sm:text-sm">
+      {isAdmin
+        ? "Vue d'ensemble de la plateforme WorkPilot"
+        : "Voici un aperçu de votre activité sur WorkPilot"}
+    </p>
+  </div>
 
-        <Button
-          size="sm"
-          onClick={() => router.push("/projects/Users/newProjects")}
-          className="w-full transition-all duration-200 hover:-translate-y-0.5 sm:w-auto"
-        >
-          <Plus className="h-4 w-4" />
-          Créer un projet
-        </Button>
-      </div>
+  {!isAdmin && (
+    <Button
+      size="sm"
+      onClick={() => router.push("/projects/Users/newProjects")}
+      className="w-full transition-all duration-200 hover:-translate-y-0.5 sm:w-auto"
+    >
+      <Plus className="h-4 w-4" />
+      Créer un projet
+    </Button>
+  )}
+</div>
 
       {/* ✅ CONDITION PRINCIPALE :
           - Si pas hydraté OU (chargement ET pas de stats) → SKELETON

@@ -20,9 +20,24 @@ const MAX_TOKENS = {
   taches: 10000,
 } as const;
 
-/* ==========================================================
-   10 SECTIONS OBLIGATOIRES — Toujours générées
-========================================================== */
+interface AIChatResponse {
+  choices?: Array<{
+    message?: {
+      content?: string;
+    };
+    text?: string;
+  }>;
+  candidates?: Array<{
+    content?: {
+      parts?: Array<{ text?: string }>;
+    };
+    finishReason?: string;
+  }>;
+  error?: {
+    message?: string;
+  };
+}
+
 const SECTIONS_CDC = [
   'Présentation du projet',
   'Contexte du projet',
@@ -598,7 +613,7 @@ Transformer un cahier des charges en un **tableau JSON de 15 à 20 tâches de d�
 - **Taille idéale** : 1-3 jours de travail pour un développeur mid-level
 - **Trop grosse** : "Développer tout le backend" → À découper
 - **Trop petite** : "Créer une variable" → À regrouper
-- **Bien dimensionnée** : "Implémenter l'endpoint POST /projects avec validation DTO"
+- **Bien dimensionnée** : "Implémenter le endpoint POST /projects avec validation DTO"
 
 ## Indépendance
 - Chaque tâche doit être **testable indépendamment** si possible
@@ -837,7 +852,8 @@ Réponds UNIQUEMENT avec le tableau JSON.`;
             );
           }
 
-          const data = await response.json();
+          // ✅ CORRECTION : caster response.json() avec AIChatResponse
+          const data = (await response.json()) as AIChatResponse;
           const texte = data?.choices?.[0]?.message?.content;
 
           if (!texte) {
